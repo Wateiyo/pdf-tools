@@ -10,10 +10,33 @@ require('dotenv').config();
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Middleware
+// Middleware - CORS Configuration with your specific URLs
 app.use(cors({
-    origin: process.env.FRONTEND_URL || '*',
-    credentials: true
+    origin: function (origin, callback) {
+        // Allow requests with no origin (like mobile apps or curl requests)
+        if (!origin) return callback(null, true);
+        
+        const allowedOrigins = [
+            'https://srv-d358t78dl3ps738fkjpg.onrender.com',
+            'http://localhost:3000',
+            'http://localhost:3001'
+        ];
+        
+        if (allowedOrigins.includes(origin)) {
+            return callback(null, true);
+        }
+        
+        // For development - allow any render.com subdomain
+        if (origin.includes('.onrender.com')) {
+            return callback(null, true);
+        }
+        
+        return callback(new Error('Not allowed by CORS'));
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+    optionsSuccessStatus: 200
 }));
 app.use(express.json());
 app.use(express.static('public'));
@@ -133,25 +156,30 @@ async function repairPDF(file) {
     }
 }
 
-async function convertPDFToImages(file, format = 'png') {
-    // Simplified PDF to image conversion using canvas
-    // This is a basic implementation - for production, you might want a more robust solution
-    try {
-        const pdfDoc = await PDFDocument.load(file.buffer);
+// Basic PDF editing function
+async function editPDF(file, edits) {
+    const pdfDoc = await PDFDocument.load(file.buffer);
+    
+    // Basic rotation functionality
+    if (edits.rotatePages) {
         const pages = pdfDoc.getPages();
-        
-        // For now, return a placeholder response
-        // In a full implementation, you'd use a library like pdf-poppler or similar
-        const results = pages.map((page, index) => ({
-            path: path.join(outputDir, `page_${index + 1}.${format}`),
-            name: `page_${index + 1}.${format}`
-        }));
-        
-        return results;
-    } catch (error) {
-        throw new Error('PDF to image conversion failed: ' + error.message);
+        edits.rotatePages.forEach(({ pageIndex, degrees }) => {
+            if (pages[pageIndex]) {
+                pages[pageIndex].setRotation({ angle: degrees });
+            }
+        });
     }
+    
+    // Add text functionality would require additional libraries like pdf-lib text features
+    // This is a basic implementation
+    
+    return await pdfDoc.save();
 }
+
+// Handle preflight OPTIONS requests
+app.options('*', (req, res) => {
+    res.status(200).end();
+});
 
 // API Routes
 
@@ -334,26 +362,6 @@ app.post('/api/process-pdf', upload.array('files', 20), async (req, res) => {
         });
     }
 });
-
-// Basic PDF editing function
-async function editPDF(file, edits) {
-    const pdfDoc = await PDFDocument.load(file.buffer);
-    
-    // Basic rotation functionality
-    if (edits.rotatePages) {
-        const pages = pdfDoc.getPages();
-        edits.rotatePages.forEach(({ pageIndex, degrees }) => {
-            if (pages[pageIndex]) {
-                pages[pageIndex].setRotation({ angle: degrees });
-            }
-        });
-    }
-    
-    // Add text functionality would require additional libraries like pdf-lib text features
-    // This is a basic implementation
-    
-    return await pdfDoc.save();
-}
 
 // Download endpoint
 app.get('/api/download/:filename', async (req, res) => {
