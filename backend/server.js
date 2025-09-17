@@ -157,11 +157,24 @@ async function convertPDFToImages(file, format = 'png') {
 
 app.post('/api/process-pdf', upload.array('files', 20), async (req, res) => {
     try {
+        console.log('Received request:', {
+            tool: req.body.tool,
+            hasPremium: req.body.hasPremium,
+            fileCount: req.files ? req.files.length : 0,
+            convertTo: req.body.convertTo
+        });
+        
         const { tool, hasPremium } = req.body;
         const files = req.files;
         
         if (!files || files.length === 0) {
+            console.error('No files uploaded');
             return res.status(400).json({ error: 'No files uploaded' });
+        }
+        
+        if (!tool) {
+            console.error('No tool specified');
+            return res.status(400).json({ error: 'No tool specified' });
         }
         
         // Check premium requirements

@@ -604,13 +604,13 @@
                 <div id="paypal-button-container">
                     <form action="https://www.paypal.com/cgi-bin/webscr" method="post" target="paypal_popup" onsubmit="openPayPalPopup()">
                         <input type="hidden" name="cmd" value="_xclick" />
-                        <input type="hidden" name="business" value="wateiyoelsie@gmail.com" />
+                        <input type="hidden" name="business" value="your-paypal-email@gmail.com" />
                         <input type="hidden" name="item_name" value="PDF Tools Premium Access - 24 Hours" />
                         <input type="hidden" name="amount" value="2.00" />
                         <input type="hidden" name="currency_code" value="USD" />
-                        <input type="hidden" name="return" value="https://pdf-tools-72z5.onrender.com/success.html" />
-                        <input type="hidden" name="cancel_return" value="https://pdf-tools-72z5.onrender.com" />
-                        <input type="hidden" name="notify_url" value="https://pdf-tools-3r9n.onrender.com/api/paypal-ipn" />
+                        <input type="hidden" name="return" value="https://your-frontend.onrender.com/success.html" />
+                        <input type="hidden" name="cancel_return" value="https://your-frontend.onrender.com" />
+                        <input type="hidden" name="notify_url" value="https://your-backend.onrender.com/api/paypal-ipn" />
                         
                         <!-- Custom styling to match your design -->
                         <button type="submit" style="
@@ -694,16 +694,22 @@
     </footer>
 
     <script>
-        // Backend URL configuration
+        // ===== BACKEND URL CONFIGURATION =====
+        // Replace 'your-backend-name' with your actual Render backend service name
         const BACKEND_URL = window.location.hostname === 'localhost' 
             ? 'http://localhost:3001' 
-            : 'https://pdf-tools-3r9n.onrender.com'; // Replace with your actual backend URL
+            : 'https://your-backend-name.onrender.com';
         
+        console.log('Backend URL configured as:', BACKEND_URL);
+        
+        // ===== APPLICATION VARIABLES =====
+
+        // ===== APPLICATION VARIABLES =====
         let currentTool = '';
         let selectedFiles = [];
         let userHasPremium = checkPremiumStatus();
 
-        // Tool configurations
+        // ===== TOOL CONFIGURATIONS =====
         const toolConfigs = {
             merge: { title: 'Merge PDFs Online', freeLimit: 3, requiresPremium: false },
             compress: { title: 'Compress PDF Online', freeLimit: 0, requiresPremium: true },
@@ -904,6 +910,12 @@
                 }
                 
                 console.log('Sending request to:', `${BACKEND_URL}/api/process-pdf`);
+                console.log('Form data contents:', {
+                    tool: currentTool,
+                    hasPremium: userHasPremium.toString(),
+                    fileCount: selectedFiles.length,
+                    convertTo: currentTool === 'convert' ? (document.querySelector('input[name="convertFormat"]:checked')?.value || 'not selected') : 'N/A'
+                });
                 
                 const response = await fetch(`${BACKEND_URL}/api/process-pdf`, {
                     method: 'POST',
@@ -911,8 +923,16 @@
                 });
                 
                 if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-                    throw new Error(errorData.error || `Server error: ${response.status}`);
+                    const errorData = await response.json().catch(async () => {
+                        const text = await response.text().catch(() => 'No error details available');
+                        return { error: `HTTP ${response.status}: ${text}` };
+                    });
+                    console.error('Server response error:', {
+                        status: response.status,
+                        statusText: response.statusText,
+                        errorData: errorData
+                    });
+                    throw new Error(errorData.error || `Server error: ${response.status} ${response.statusText}`);
                 }
                 
                 const result = await response.json();
