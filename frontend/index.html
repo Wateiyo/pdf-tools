@@ -1,0 +1,988 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Suite - Free Online PDF Tools</title>
+    <meta name="description" content="Free PDF tools to merge, split, compress, edit, repair and convert PDF files online. No downloads required.">
+    <meta name="keywords" content="merge pdf, split pdf, compress pdf, edit pdf, convert pdf, pdf tools, online pdf editor">
+    
+    <!-- PayPal SDK -->
+    <script src="https://www.paypal.com/sdk/js?client-id=YOUR_PAYPAL_CLIENT_ID&currency=USD"></script>
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            color: #333;
+            line-height: 1.6;
+        }
+
+        /* Header */
+        .header {
+            background: white;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 20px;
+        }
+
+        .logo {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #e53e3e;
+        }
+
+        .nav {
+            display: flex;
+            gap: 30px;
+        }
+
+        .nav a {
+            text-decoration: none;
+            color: #666;
+            font-weight: 500;
+            transition: color 0.3s;
+        }
+
+        .nav a:hover {
+            color: #e53e3e;
+        }
+
+        .backend-status {
+            background: #fed7d7;
+            color: #c53030;
+            padding: 5px 10px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+        }
+
+        /* Hero Section */
+        .hero {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            text-align: center;
+            padding: 80px 20px;
+        }
+
+        .hero h1 {
+            font-size: 3rem;
+            margin-bottom: 20px;
+            font-weight: 600;
+        }
+
+        .hero p {
+            font-size: 1.2rem;
+            margin-bottom: 40px;
+            opacity: 0.9;
+        }
+
+        .features {
+            display: flex;
+            justify-content: center;
+            gap: 30px;
+            flex-wrap: wrap;
+        }
+
+        .feature-badge {
+            background: rgba(255,255,255,0.2);
+            padding: 10px 20px;
+            border-radius: 25px;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* Tools Grid */
+        .tools-section {
+            max-width: 1200px;
+            margin: 80px auto;
+            padding: 0 20px;
+        }
+
+        .tools-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 30px;
+        }
+
+        .tool-card {
+            background: white;
+            border: 2px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 40px 30px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+
+        .tool-card:hover {
+            border-color: #e53e3e;
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+        }
+
+        .tool-card.active {
+            border-color: #e53e3e;
+            box-shadow: 0 0 0 1px #e53e3e;
+        }
+
+        .tool-icon {
+            width: 60px;
+            height: 60px;
+            margin: 0 auto 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+        }
+
+        .merge-icon { color: #718096; }
+        .compress-icon { color: #f6ad55; }
+        .split-icon { color: #e53e3e; }
+        .edit-icon { color: #f6ad55; }
+        .repair-icon { color: #718096; }
+        .convert-icon { color: #4299e1; }
+
+        .tool-title {
+            font-size: 1.3rem;
+            font-weight: 600;
+            margin-bottom: 10px;
+            color: #2d3748;
+        }
+
+        .tool-description {
+            color: #666;
+            font-size: 0.95rem;
+            line-height: 1.5;
+        }
+
+        /* Active Tool Section */
+        .active-tool {
+            max-width: 800px;
+            margin: 60px auto;
+            padding: 0 20px;
+            text-align: center;
+        }
+
+        .active-tool h2 {
+            font-size: 2rem;
+            margin-bottom: 40px;
+            color: #2d3748;
+        }
+
+        /* File Upload Area */
+        .upload-area {
+            border: 2px dashed #cbd5e0;
+            border-radius: 12px;
+            padding: 60px 40px;
+            margin: 30px 0;
+            transition: all 0.3s ease;
+            background: #f7fafc;
+        }
+
+        .upload-area:hover, .upload-area.dragover {
+            border-color: #e53e3e;
+            background: #fed7d7;
+        }
+
+        .upload-icon {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto 20px;
+            color: #a0aec0;
+            font-size: 4rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .upload-text {
+            color: #4a5568;
+            margin-bottom: 20px;
+            font-size: 1.1rem;
+        }
+
+        .upload-btn {
+            background: #e53e3e;
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 500;
+            font-size: 1rem;
+            transition: background 0.3s;
+        }
+
+        .upload-btn:hover {
+            background: #c53030;
+        }
+
+        .file-input {
+            display: none;
+        }
+
+        /* File List */
+        .file-list {
+            margin: 20px 0;
+            text-align: left;
+        }
+
+        .file-item {
+            background: #f7fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 10px 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .file-info {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .remove-file {
+            background: #e53e3e;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.8rem;
+        }
+
+        /* Process Button */
+        .process-btn {
+            background: #48bb78;
+            color: white;
+            border: none;
+            padding: 15px 40px;
+            border-radius: 8px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            margin: 30px 0;
+            transition: background 0.3s;
+        }
+
+        .process-btn:hover {
+            background: #38a169;
+        }
+
+        .process-btn:disabled {
+            background: #a0aec0;
+            cursor: not-allowed;
+        }
+
+        /* Premium Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.7);
+            z-index: 1000;
+        }
+
+        .modal-content {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            border-radius: 12px;
+            padding: 40px;
+            max-width: 500px;
+            width: 90%;
+        }
+
+        .modal-header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .modal-header h3 {
+            font-size: 1.5rem;
+            color: #2d3748;
+            margin-bottom: 10px;
+        }
+
+        .close-btn {
+            position: absolute;
+            top: 15px;
+            right: 20px;
+            background: none;
+            border: none;
+            font-size: 1.5rem;
+            cursor: pointer;
+            color: #666;
+        }
+
+        .pricing-info {
+            text-align: center;
+            margin: 30px 0;
+        }
+
+        .price {
+            font-size: 2.5rem;
+            font-weight: bold;
+            color: #e53e3e;
+            margin-bottom: 5px;
+        }
+
+        .duration {
+            color: #666;
+            margin-bottom: 20px;
+        }
+
+        .premium-features {
+            text-align: left;
+            margin: 20px 0;
+        }
+
+        .premium-features li {
+            margin: 8px 0;
+            list-style: none;
+            position: relative;
+            padding-left: 25px;
+            color: #4a5568;
+        }
+
+        .premium-features li:before {
+            content: '✓';
+            position: absolute;
+            left: 0;
+            color: #48bb78;
+            font-weight: bold;
+        }
+
+        /* Footer */
+        .footer {
+            background: #2d3748;
+            color: #a0aec0;
+            padding: 60px 20px 30px;
+        }
+
+        .footer-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 40px;
+        }
+
+        .footer-section h4 {
+            color: #e53e3e;
+            margin-bottom: 20px;
+            font-size: 1.1rem;
+        }
+
+        .footer-section ul {
+            list-style: none;
+        }
+
+        .footer-section li {
+            margin: 10px 0;
+        }
+
+        .footer-section a {
+            color: #a0aec0;
+            text-decoration: none;
+            transition: color 0.3s;
+        }
+
+        .footer-section a:hover {
+            color: white;
+        }
+
+        .footer-bottom {
+            text-align: center;
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid #4a5568;
+            font-size: 0.9rem;
+        }
+
+        /* Processing Animation */
+        .processing {
+            display: none;
+            text-align: center;
+            padding: 40px;
+        }
+
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #e53e3e;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Mobile Responsive */
+        @media (max-width: 768px) {
+            .header-content {
+                flex-direction: column;
+                gap: 15px;
+            }
+
+            .nav {
+                gap: 20px;
+            }
+
+            .hero h1 {
+                font-size: 2rem;
+            }
+
+            .features {
+                gap: 15px;
+            }
+
+            .tool-card {
+                padding: 30px 20px;
+            }
+
+            .upload-area {
+                padding: 40px 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="header-content">
+            <div class="logo">PDF Suite</div>
+            <nav class="nav">
+                <span>🔒 Files Never Leave Your Device</span>
+                <a href="#merge">Merge</a>
+                <a href="#compress">Compress</a>
+                <a href="#split">Split</a>
+                <a href="#edit">Edit</a>
+                <a href="#repair">Repair</a>
+                <a href="#convert">Convert</a>
+            </nav>
+
+        </div>
+    </header>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <h1>Free Online PDF Tools</h1>
+        <p>Merge, compress, and split PDFs instantly. No downloads required.</p>
+        <div class="features">
+            <div class="feature-badge">
+                <span>⚡</span> Instant Processing
+            </div>
+            <div class="feature-badge">
+                <span>🔒</span> 100% Private
+            </div>
+            <div class="feature-badge">
+                <span>💻</span> Works Offline
+            </div>
+            <div class="feature-badge">
+                <span>💳</span> Pay Per Use
+            </div>
+        </div>
+    </section>
+
+    <!-- Tools Grid -->
+    <section class="tools-section">
+        <div class="tools-grid">
+            <div class="tool-card" id="merge" onclick="selectTool('merge')">
+                <div class="tool-icon merge-icon">📄</div>
+                <h3 class="tool-title">Merge PDFs</h3>
+                <p class="tool-description">Combine multiple PDFs into one document</p>
+            </div>
+
+            <div class="tool-card" id="compress" onclick="selectTool('compress')">
+                <div class="tool-icon compress-icon">⚡</div>
+                <h3 class="tool-title">Compress PDF</h3>
+                <p class="tool-description">Reduce PDF file size without quality loss</p>
+            </div>
+
+            <div class="tool-card" id="split" onclick="selectTool('split')">
+                <div class="tool-icon split-icon">✂️</div>
+                <h3 class="tool-title">Split PDF</h3>
+                <p class="tool-description">Extract specific pages from PDF files</p>
+            </div>
+
+            <div class="tool-card" id="edit" onclick="selectTool('edit')">
+                <div class="tool-icon edit-icon">✏️</div>
+                <h3 class="tool-title">Edit PDF</h3>
+                <p class="tool-description">Add text, rotate pages, and modify content</p>
+            </div>
+
+            <div class="tool-card" id="repair" onclick="selectTool('repair')">
+                <div class="tool-icon repair-icon">🔧</div>
+                <h3 class="tool-title">Repair PDF</h3>
+                <p class="tool-description">Fix corrupted or damaged PDF files</p>
+            </div>
+
+            <div class="tool-card" id="convert" onclick="selectTool('convert')">
+                <div class="tool-icon convert-icon">🔄</div>
+                <h3 class="tool-title">Convert PDF</h3>
+                <p class="tool-description">Convert PDFs to Word, Excel, or images</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Active Tool Section -->
+    <section class="active-tool" id="activeToolSection" style="display: none;">
+        <h2 id="activeToolTitle">Merge PDFs Online</h2>
+        
+        <div class="upload-area" onclick="document.getElementById('fileInput').click()">
+            <div class="upload-icon">📁</div>
+            <p class="upload-text">Drag and drop PDF files here or click to browse</p>
+            <button class="upload-btn">Choose Files</button>
+            <input type="file" id="fileInput" class="file-input" multiple accept=".pdf">
+        </div>
+
+        <div class="file-list" id="fileList"></div>
+        
+        <button class="process-btn" id="processBtn" onclick="processFiles()" style="display: none;">
+            Merge PDFs
+        </button>
+
+        <div class="processing" id="processing">
+            <div class="spinner"></div>
+            <p>Processing your PDF files...</p>
+        </div>
+    </section>
+
+    <!-- Premium Modal -->
+    <div id="premiumModal" class="modal">
+        <div class="modal-content">
+            <button class="close-btn" onclick="closePremiumModal()">&times;</button>
+            <div class="modal-header">
+                <h3>Premium Access Required</h3>
+                <p>Unlock unlimited access to all PDF tools</p>
+            </div>
+            
+            <div class="pricing-info">
+                <div class="price">$2</div>
+                <div class="duration">24 hours unlimited access</div>
+                
+                <ul class="premium-features">
+                    <li>Process unlimited files</li>
+                    <li>No file size restrictions</li>
+                    <li>High-quality processing</li>
+                    <li>Priority support</li>
+                    <li>No watermarks</li>
+                </ul>
+                
+                <!-- PayPal Button (Simple Personal Account Method) -->
+                <div id="paypal-button-container">
+                    <form action="https://www.paypal.com/cgi-bin/webscr" method="post" target="paypal_popup" onsubmit="openPayPalPopup()">
+                        <input type="hidden" name="cmd" value="_xclick" />
+                        <input type="hidden" name="business" value="your-paypal-email@gmail.com" />
+                        <input type="hidden" name="item_name" value="PDF Tools Premium Access - 24 Hours" />
+                        <input type="hidden" name="amount" value="2.00" />
+                        <input type="hidden" name="currency_code" value="USD" />
+                        <input type="hidden" name="return" value="https://your-frontend.onrender.com/success.html" />
+                        <input type="hidden" name="cancel_return" value="https://your-frontend.onrender.com" />
+                        <input type="hidden" name="notify_url" value="https://your-backend.onrender.com/api/paypal-ipn" />
+                        
+                        <!-- Custom styling to match your design -->
+                        <button type="submit" style="
+                            background: linear-gradient(135deg, #0070ba, #003087);
+                            color: white;
+                            border: none;
+                            padding: 15px 30px;
+                            border-radius: 8px;
+                            font-size: 1.1rem;
+                            font-weight: bold;
+                            cursor: pointer;
+                            width: 100%;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            gap: 10px;
+                            transition: transform 0.2s ease;
+                        " onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform='scale(1)'">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M7.076 21.337H2.47a.641.641 0 0 1-.633-.74L4.944.901C5.026.382 5.474 0 5.998 0h8.418c2.508 0 4.578.087 5.982 1.615.469.509.75 1.13.969 1.776 1.255 3.712.428 6.413-1.653 8.298-.438.397-.93.745-1.485 1.044 3.181.424 4.516 2.641 3.892 5.994-.578 3.11-2.816 4.61-6.663 4.61H7.076zm2.141-7.716h2.682c1.511 0 2.729-.417 3.22-1.746.489-1.326-.231-2.021-1.637-2.021H10.98l-.763 3.767zm1.425-7.035h2.375c1.237 0 2.179-.31 2.579-1.396.4-1.086-.18-1.671-1.417-1.671h-2.375l-.762 3.067z"/>
+                            </svg>
+                            Pay with PayPal - $2.00
+                        </button>
+                    </form>
+                    
+                    <!-- Alternative: Quick Premium Code Entry -->
+                    <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #e2e8f0;">
+                        <p style="font-size: 0.9rem; color: #666; margin-bottom: 10px;">Already paid? Enter your code:</p>
+                        <div style="display: flex; gap: 10px;">
+                            <input type="text" id="premiumCode" placeholder="Premium code" style="
+                                flex: 1;
+                                padding: 10px;
+                                border: 1px solid #e2e8f0;
+                                border-radius: 6px;
+                                font-size: 0.9rem;
+                            " />
+                            <button onclick="activatePremiumCode()" style="
+                                background: #48bb78;
+                                color: white;
+                                border: none;
+                                padding: 10px 20px;
+                                border-radius: 6px;
+                                cursor: pointer;
+                                font-size: 0.9rem;
+                            ">Activate</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="footer-content">
+            <div class="footer-section">
+                <h4>PDF Tools</h4>
+                <ul>
+                    <li><a href="#merge">Merge PDF</a></li>
+                    <li><a href="#compress">Compress PDF</a></li>
+                    <li><a href="#split">Split PDF</a></li>
+                </ul>
+            </div>
+            <div class="footer-section">
+                <h4>Features</h4>
+                <ul>
+                    <li><a href="#">Free to Use</a></li>
+                    <li><a href="#">No Registration</a></li>
+                    <li><a href="#">Secure Processing</a></li>
+                    <li><a href="#">Mobile Friendly</a></li>
+                </ul>
+            </div>
+            <div class="footer-section">
+                <h4>About</h4>
+                <p>PDF Utility Suite provides free online PDF tools to help you work with PDF files efficiently.</p>
+            </div>
+        </div>
+        <div class="footer-bottom">
+            <p>&copy; 2025 PDF Utility Suite. All rights reserved.</p>
+        </div>
+    </footer>
+
+    <script>
+        let currentTool = '';
+        let selectedFiles = [];
+        let userHasPremium = checkPremiumStatus();
+
+        // Tool configurations
+        const toolConfigs = {
+            merge: { title: 'Merge PDFs Online', freeLimit: 3, requiresPremium: false },
+            compress: { title: 'Compress PDF Online', freeLimit: 0, requiresPremium: true },
+            split: { title: 'Split PDF Online', freeLimit: 1, requiresPremium: false },
+            edit: { title: 'Edit PDF Online', freeLimit: 0, requiresPremium: true },
+            repair: { title: 'Repair PDF Online', freeLimit: 0, requiresPremium: true },
+            convert: { title: 'Convert PDF Online', freeLimit: 1, requiresPremium: false }
+        };
+
+        // Check premium status
+        function checkPremiumStatus() {
+            const premiumExpiry = localStorage.getItem('premiumExpiry');
+            if (premiumExpiry && new Date() < new Date(premiumExpiry)) {
+                return true;
+            }
+            localStorage.removeItem('premiumAccess');
+            localStorage.removeItem('premiumExpiry');
+            return false;
+        }
+
+        // Select tool
+        function selectTool(tool) {
+            currentTool = tool;
+            const config = toolConfigs[tool];
+            
+            // Update UI
+            document.querySelectorAll('.tool-card').forEach(card => {
+                card.classList.remove('active');
+            });
+            document.getElementById(tool).classList.add('active');
+            
+            // Show active tool section
+            document.getElementById('activeToolSection').style.display = 'block';
+            document.getElementById('activeToolTitle').textContent = config.title;
+            document.getElementById('processBtn').textContent = `Process ${tool.charAt(0).toUpperCase() + tool.slice(1)}`;
+            
+            // Clear previous files
+            selectedFiles = [];
+            document.getElementById('fileInput').value = '';
+            document.getElementById('fileList').innerHTML = '';
+            document.getElementById('processBtn').style.display = 'none';
+            
+            // Scroll to active tool section
+            document.getElementById('activeToolSection').scrollIntoView({ behavior: 'smooth' });
+            
+            // Check if premium is required
+            if (config.requiresPremium && !userHasPremium) {
+                showPremiumModal();
+            }
+        }
+
+        // File input handler
+        document.getElementById('fileInput').addEventListener('change', handleFileSelect);
+
+        function handleFileSelect(event) {
+            const files = Array.from(event.target.files);
+            const config = toolConfigs[currentTool];
+            
+            // Check limits for free users
+            if (!userHasPremium && config.freeLimit > 0 && files.length > config.freeLimit) {
+                alert(`Free version allows maximum ${config.freeLimit} files. Upgrade to premium for unlimited access.`);
+                return;
+            }
+            
+            selectedFiles = files;
+            displayFiles();
+        }
+
+        // Display selected files
+        function displayFiles() {
+            const fileList = document.getElementById('fileList');
+            fileList.innerHTML = '';
+            
+            selectedFiles.forEach((file, index) => {
+                const fileItem = document.createElement('div');
+                fileItem.className = 'file-item';
+                fileItem.innerHTML = `
+                    <div class="file-info">
+                        <span>📄</span>
+                        <span>${file.name}</span>
+                        <span style="color: #666; font-size: 0.9rem;">(${(file.size / 1024 / 1024).toFixed(2)} MB)</span>
+                    </div>
+                    <button class="remove-file" onclick="removeFile(${index})">Remove</button>
+                `;
+                fileList.appendChild(fileItem);
+            });
+            
+            document.getElementById('processBtn').style.display = selectedFiles.length > 0 ? 'block' : 'none';
+        }
+
+        // Remove file
+        function removeFile(index) {
+            selectedFiles.splice(index, 1);
+            displayFiles();
+        }
+
+        // Process files (with premium checks restored)
+        async function processFiles() {
+            if (selectedFiles.length === 0) return;
+            
+            const config = toolConfigs[currentTool];
+            
+            // Check if premium is required and user doesn't have it
+            if (config.requiresPremium && !userHasPremium) {
+                showPremiumModal();
+                return;
+            }
+            
+            // Check free limits for non-premium users
+            if (!userHasPremium && config.freeLimit > 0 && selectedFiles.length > config.freeLimit) {
+                alert(`Free version allows maximum ${config.freeLimit} files. Upgrade to premium for unlimited access.`);
+                showPremiumModal();
+                return;
+            }
+            
+            document.getElementById('processing').style.display = 'block';
+            document.getElementById('processBtn').style.display = 'none';
+            
+            try {
+                const formData = new FormData();
+                selectedFiles.forEach(file => {
+                    formData.append('files', file);
+                });
+                formData.append('tool', currentTool);
+                formData.append('hasPremium', userHasPremium.toString());
+                
+                const response = await fetch(`${BACKEND_URL}/api/process-pdf`, {
+                    method: 'POST',
+                    body: formData,
+                });
+                
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+                    throw new Error(errorData.error || `Server error: ${response.status}`);
+                }
+                
+                const result = await response.json();
+                
+                if (result.success && result.downloadUrl) {
+                    // Create download link
+                    const link = document.createElement('a');
+                    link.href = `${BACKEND_URL}${result.downloadUrl}`;
+                    link.download = result.filename || 'processed.pdf';
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    
+                    alert('✅ File processed successfully!');
+                } else {
+                    throw new Error('Processing failed - no download URL received');
+                }
+                
+            } catch (error) {
+                console.error('Processing error:', error);
+                
+                // More user-friendly error messages
+                let errorMessage = 'Processing failed. ';
+                if (error.message.includes('Failed to fetch')) {
+                    errorMessage += 'Cannot connect to server. Please try again later.';
+                } else if (error.message.includes('413')) {
+                    errorMessage += 'File too large. Please use smaller files.';
+                } else if (error.message.includes('400')) {
+                    errorMessage += 'Invalid file format. Please use PDF files only.';
+                } else {
+                    errorMessage += error.message;
+                }
+                
+                alert('❌ ' + errorMessage);
+            } finally {
+                document.getElementById('processing').style.display = 'none';
+                document.getElementById('processBtn').style.display = 'block';
+            }
+        }
+
+        // Premium modal functions
+        function showPremiumModal() {
+            document.getElementById('premiumModal').style.display = 'block';
+            initPayPal();
+        }
+
+        function closePremiumModal() {
+            document.getElementById('premiumModal').style.display = 'none';
+        }
+
+        // PayPal and Premium Functions
+        function openPayPalPopup() {
+            // Open PayPal in a popup window
+            const popup = window.open('', 'paypal_popup', 'width=600,height=700,scrollbars=yes,resizable=yes');
+            return true;
+        }
+        
+        // Listen for payment success messages
+        window.addEventListener('message', function(event) {
+            if (event.data === 'payment_success') {
+                // Grant premium access
+                const expiry = new Date();
+                expiry.setHours(expiry.getHours() + 24);
+                
+                localStorage.setItem('premiumAccess', 'true');
+                localStorage.setItem('premiumExpiry', expiry.toISOString());
+                
+                userHasPremium = true;
+                closePremiumModal();
+                
+                alert('🎉 Payment successful! You now have 24-hour premium access to all tools!');
+                
+                // Continue with the selected tool
+                if (currentTool) {
+                    selectTool(currentTool);
+                }
+            }
+        });
+        
+        // Premium code activation (for manual premium grants)
+        function activatePremiumCode() {
+            const code = document.getElementById('premiumCode').value.trim();
+            
+            // Simple premium codes (you can generate these)
+            const validCodes = [
+                'PREMIUM24H',
+                'TESTCODE123',
+                'LAUNCH2024'
+            ];
+            
+            if (validCodes.includes(code.toUpperCase())) {
+                const expiry = new Date();
+                expiry.setHours(expiry.getHours() + 24);
+                
+                localStorage.setItem('premiumAccess', 'true');
+                localStorage.setItem('premiumExpiry', expiry.toISOString());
+                
+                userHasPremium = true;
+                closePremiumModal();
+                
+                alert('🎉 Premium code activated! You now have 24-hour premium access!');
+                
+                if (currentTool) {
+                    selectTool(currentTool);
+                }
+            } else {
+                alert('❌ Invalid premium code. Please check and try again.');
+            }
+        }
+
+        // Drag and drop functionality
+        const uploadArea = document.querySelector('.upload-area');
+
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            
+            const files = Array.from(e.dataTransfer.files).filter(file => file.type === 'application/pdf');
+            if (files.length > 0) {
+                const config = toolConfigs[currentTool];
+                if (!userHasPremium && config.freeLimit > 0 && files.length > config.freeLimit) {
+                    alert(`Free version allows maximum ${config.freeLimit} files. Upgrade to premium for unlimited access.`);
+                    return;
+                }
+                selectedFiles = files;
+                displayFiles();
+            }
+        });
+
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            const modal = document.getElementById('premiumModal');
+            if (event.target === modal) {
+                closePremiumModal();
+            }
+        }
+
+        // Auto-select merge tool on load
+        window.addEventListener('load', () => {
+            selectTool('merge');
+        });
+    </script>
+</body>
+</html>
