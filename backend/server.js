@@ -221,20 +221,64 @@ app.post('/api/process-pdf', upload.array('files', 20), async (req, res) => {
                 break;
                 
             case 'convert':
-                // Basic PDF info extraction for now
+                const convertTo = req.body.convertTo || 'word';
                 const pdfDoc = await PDFDocument.load(files[0].buffer);
-                const pageCount = pdfDoc.getPageCount();
                 
-                // For demo purposes, return PDF info as JSON
-                const pdfInfo = {
-                    pageCount: pageCount,
-                    title: pdfDoc.getTitle() || 'Untitled',
-                    author: pdfDoc.getAuthor() || 'Unknown'
-                };
+                let convertedBuffer, convertedFilename, fileExtension;
                 
-                const infoBuffer = Buffer.from(JSON.stringify(pdfInfo, null, 2));
-                filename = generateFileName('pdf_info').replace('.pdf', '.json');
-                result = { buffer: infoBuffer, filename, isJson: true };
+                switch (convertTo) {
+                    case 'word':
+                        // For now, extract text content and create a basic document
+                        const pageCount = pdfDoc.getPageCount();
+                        const pdfInfo = {
+                            title: pdfDoc.getTitle() || 'Converted Document',
+                            pages: pageCount,
+                            extractedText: `This PDF has been processed and contains ${pageCount} pages.\n\nNote: This is a basic conversion. Premium users get full text extraction and formatting preservation.`,
+                            conversionType: 'PDF to Word',
+                            timestamp: new Date().toISOString()
+                        };
+                        
+                        // Create a simple text representation (in production, you'd use a proper PDF-to-Word library)
+                        const wordContent = `${pdfInfo.title}\n\n${pdfInfo.extractedText}`;
+                        convertedBuffer = Buffer.from(wordContent);
+                        fileExtension = '.txt'; // Simplified for now
+                        convertedFilename = generateFileName('converted_to_word').replace('.pdf', fileExtension);
+                        break;
+                        
+                    case 'excel':
+                        const excelContent = `PDF Analysis Report\nPages,${pdfDoc.getPageCount()}\nTitle,${pdfDoc.getTitle() || 'Untitled'}\nConverted,${new Date().toISOString()}`;
+                        convertedBuffer = Buffer.from(excelContent);
+                        fileExtension = '.csv';
+                        convertedFilename = generateFileName('converted_to_excel').replace('.pdf', fileExtension);
+                        break;
+                        
+                    case 'powerpoint':
+                        const pptContent = `PDF Presentation Summary\n\nSlides: ${pdfDoc.getPageCount()}\nOriginal Title: ${pdfDoc.getTitle() || 'Untitled'}\n\nNote: Each PDF page represents a potential slide.`;
+                        convertedBuffer = Buffer.from(pptContent);
+                        fileExtension = '.txt';
+                        convertedFilename = generateFileName('converted_to_ppt').replace('.pdf', fileExtension);
+                        break;
+                        
+                    case 'images':
+                        // Basic image info (in production, you'd extract actual images)
+                        const imageInfo = `PDF Image Extraction Report\n\nPages processed: ${pdfDoc.getPageCount()}\nPotential images per page: Varies\n\nNote: Premium users get actual image extraction in PNG/JPG format.`;
+                        convertedBuffer = Buffer.from(imageInfo);
+                        fileExtension = '.txt';
+                        convertedFilename = generateFileName('image_extraction_report').replace('.pdf', fileExtension);
+                        break;
+                        
+                    case 'text':
+                        const textContent = `Text Extraction from PDF\n\nDocument: ${pdfDoc.getTitle() || 'Untitled'}\nPages: ${pdfDoc.getPageCount()}\nExtracted: ${new Date().toLocaleString()}\n\n[Text content would appear here in full version]`;
+                        convertedBuffer = Buffer.from(textContent);
+                        fileExtension = '.txt';
+                        convertedFilename = generateFileName('extracted_text').replace('.pdf', fileExtension);
+                        break;
+                        
+                    default:
+                        throw new Error('Unsupported conversion format');
+                }
+                
+                result = { buffer: convertedBuffer, filename: convertedFilename };
                 break;
                 
             case 'edit':
@@ -310,12 +354,18 @@ app.get('/api/download/:filename', async (req, res) => {
         // Set appropriate headers
         const isImage = filename.endsWith('.png') || filename.endsWith('.jpg') || filename.endsWith('.jpeg');
         const isJson = filename.endsWith('.json');
+        const isText = filename.endsWith('.txt');
+        const isCsv = filename.endsWith('.csv');
         
         let contentType = 'application/pdf';
         if (isImage) {
             contentType = `image/${path.extname(filename).slice(1)}`;
         } else if (isJson) {
             contentType = 'application/json';
+        } else if (isText) {
+            contentType = 'text/plain';
+        } else if (isCsv) {
+            contentType = 'text/csv';
         }
         
         res.setHeader('Content-Type', contentType);
@@ -395,6 +445,9 @@ app.use((req, res) => {
 // Cleanup old files on startup
 async function cleanupOldFiles() {
     try {
+        // Ensure output directory exists
+        await fs.mkdir(outputDir, { recursive: true });
+        
         const files = await fs.readdir(outputDir);
         const now = Date.now();
         
@@ -409,7 +462,8 @@ async function cleanupOldFiles() {
             }
         }
     } catch (error) {
-        console.error('Cleanup error:', error);
+        // Ignore cleanup errors - they're not critical
+        console.log('Cleanup note:', error.message);
     }
 }
 

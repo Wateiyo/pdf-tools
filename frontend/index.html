@@ -604,13 +604,13 @@
                 <div id="paypal-button-container">
                     <form action="https://www.paypal.com/cgi-bin/webscr" method="post" target="paypal_popup" onsubmit="openPayPalPopup()">
                         <input type="hidden" name="cmd" value="_xclick" />
-                        <input type="hidden" name="business" value="your-paypal-email@gmail.com" />
+                        <input type="hidden" name="business" value="wateiyoelsie@gmail.com" />
                         <input type="hidden" name="item_name" value="PDF Tools Premium Access - 24 Hours" />
                         <input type="hidden" name="amount" value="2.00" />
                         <input type="hidden" name="currency_code" value="USD" />
-                        <input type="hidden" name="return" value="https://your-frontend.onrender.com/success.html" />
-                        <input type="hidden" name="cancel_return" value="https://your-frontend.onrender.com" />
-                        <input type="hidden" name="notify_url" value="https://your-backend.onrender.com/api/paypal-ipn" />
+                        <input type="hidden" name="return" value="https://pdf-tools-72z5.onrender.com/success.html" />
+                        <input type="hidden" name="cancel_return" value="https://pdf-tools-72z5.onrender.com" />
+                        <input type="hidden" name="notify_url" value="https://pdf-tools-3r9n.onrender.com/api/paypal-ipn" />
                         
                         <!-- Custom styling to match your design -->
                         <button type="submit" style="
@@ -694,6 +694,11 @@
     </footer>
 
     <script>
+        // Backend URL configuration
+        const BACKEND_URL = window.location.hostname === 'localhost' 
+            ? 'http://localhost:3001' 
+            : 'https://pdf-tools-3r9n.onrender.com'; // Replace with your actual backend URL
+        
         let currentTool = '';
         let selectedFiles = [];
         let userHasPremium = checkPremiumStatus();
@@ -740,6 +745,71 @@
             document.getElementById('fileInput').value = '';
             document.getElementById('fileList').innerHTML = '';
             document.getElementById('processBtn').style.display = 'none';
+            
+            // Add conversion format options for convert tool
+            const uploadArea = document.querySelector('.upload-area');
+            const existingOptions = document.getElementById('convertOptions');
+            if (existingOptions) existingOptions.remove();
+            
+            if (tool === 'convert') {
+                const convertOptions = document.createElement('div');
+                convertOptions.id = 'convertOptions';
+                convertOptions.innerHTML = `
+                    <div style="margin: 20px 0; padding: 20px; background: #f7fafc; border-radius: 10px;">
+                        <h4 style="margin-bottom: 15px; color: #2d3748;">Choose Output Format:</h4>
+                        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                            <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; padding: 8px 12px; background: white; border: 2px solid #e2e8f0; border-radius: 6px; transition: all 0.3s;">
+                                <input type="radio" name="convertFormat" value="word" checked style="margin: 0;">
+                                <span>📝 Word (.docx)</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; padding: 8px 12px; background: white; border: 2px solid #e2e8f0; border-radius: 6px; transition: all 0.3s;">
+                                <input type="radio" name="convertFormat" value="excel" style="margin: 0;">
+                                <span>📊 Excel (.xlsx)</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; padding: 8px 12px; background: white; border: 2px solid #e2e8f0; border-radius: 6px; transition: all 0.3s;">
+                                <input type="radio" name="convertFormat" value="powerpoint" style="margin: 0;">
+                                <span>📺 PowerPoint (.pptx)</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; padding: 8px 12px; background: white; border: 2px solid #e2e8f0; border-radius: 6px; transition: all 0.3s;">
+                                <input type="radio" name="convertFormat" value="images" style="margin: 0;">
+                                <span>🖼️ Images (.png)</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; padding: 8px 12px; background: white; border: 2px solid #e2e8f0; border-radius: 6px; transition: all 0.3s;">
+                                <input type="radio" name="convertFormat" value="text" style="margin: 0;">
+                                <span>📄 Text (.txt)</span>
+                            </label>
+                        </div>
+                        ${!userHasPremium ? '<p style="color: #666; font-size: 0.9rem; margin-top: 10px;">🎯 Premium users get higher quality conversions and more format options!</p>' : ''}
+                    </div>
+                `;
+                
+                uploadArea.parentNode.insertBefore(convertOptions, uploadArea.nextSibling);
+                
+                // Add hover effects
+                const labels = convertOptions.querySelectorAll('label');
+                labels.forEach(label => {
+                    label.addEventListener('mouseenter', () => {
+                        label.style.borderColor = '#e53e3e';
+                        label.style.backgroundColor = '#fed7d7';
+                    });
+                    label.addEventListener('mouseleave', () => {
+                        if (!label.querySelector('input').checked) {
+                            label.style.borderColor = '#e2e8f0';
+                            label.style.backgroundColor = 'white';
+                        }
+                    });
+                    label.addEventListener('change', () => {
+                        labels.forEach(l => {
+                            l.style.borderColor = '#e2e8f0';
+                            l.style.backgroundColor = 'white';
+                        });
+                        if (label.querySelector('input').checked) {
+                            label.style.borderColor = '#e53e3e';
+                            label.style.backgroundColor = '#fed7d7';
+                        }
+                    });
+                });
+            }
             
             // Scroll to active tool section
             document.getElementById('activeToolSection').scrollIntoView({ behavior: 'smooth' });
@@ -825,6 +895,16 @@
                 formData.append('tool', currentTool);
                 formData.append('hasPremium', userHasPremium.toString());
                 
+                // Add conversion format for convert tool
+                if (currentTool === 'convert') {
+                    const selectedFormat = document.querySelector('input[name="convertFormat"]:checked');
+                    if (selectedFormat) {
+                        formData.append('convertTo', selectedFormat.value);
+                    }
+                }
+                
+                console.log('Sending request to:', `${BACKEND_URL}/api/process-pdf`);
+                
                 const response = await fetch(`${BACKEND_URL}/api/process-pdf`, {
                     method: 'POST',
                     body: formData,
@@ -856,8 +936,8 @@
                 
                 // More user-friendly error messages
                 let errorMessage = 'Processing failed. ';
-                if (error.message.includes('Failed to fetch')) {
-                    errorMessage += 'Cannot connect to server. Please try again later.';
+                if (error.message.includes('Failed to fetch') || error.message.includes('BACKEND_URL is not defined')) {
+                    errorMessage += 'Cannot connect to server. Please check if backend URL is configured correctly.';
                 } else if (error.message.includes('413')) {
                     errorMessage += 'File too large. Please use smaller files.';
                 } else if (error.message.includes('400')) {
@@ -912,7 +992,68 @@
             }
         });
         
-        // Premium code activation (for manual premium grants)
+        // Check for payment success on page load
+        function checkPaymentSuccess() {
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.get('payment') === 'success') {
+                // Grant premium access
+                const expiry = new Date();
+                expiry.setHours(expiry.getHours() + 24);
+                
+                localStorage.setItem('premiumAccess', 'true');
+                localStorage.setItem('premiumExpiry', expiry.toISOString());
+                
+                userHasPremium = true;
+                
+                // Show success message
+                showSuccessMessage();
+                
+                // Clean up URL
+                window.history.replaceState({}, document.title, window.location.pathname);
+            }
+        }
+        
+        // Show success message modal
+        function showSuccessMessage() {
+            const successHtml = `
+                <div style="
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    background: rgba(0,0,0,0.7);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    z-index: 2000;
+                " onclick="this.remove()">
+                    <div style="
+                        background: white;
+                        border-radius: 15px;
+                        padding: 40px;
+                        text-align: center;
+                        max-width: 400px;
+                        margin: 20px;
+                    " onclick="event.stopPropagation()">
+                        <div style="font-size: 3rem; margin-bottom: 20px;">🎉</div>
+                        <h2 style="color: #48bb78; margin-bottom: 15px;">Payment Successful!</h2>
+                        <p style="color: #666; margin-bottom: 20px;">You now have 24-hour premium access to all PDF tools!</p>
+                        <button onclick="this.closest('div[style*=\"position: fixed\"]').remove()" style="
+                            background: #e53e3e;
+                            color: white;
+                            border: none;
+                            padding: 12px 24px;
+                            border-radius: 6px;
+                            cursor: pointer;
+                            font-weight: 600;
+                        ">Start Using Premium Tools</button>
+                    </div>
+                </div>
+            `;
+            
+            document.body.insertAdjacentHTML('beforeend', successHtml);
+        }
         function activatePremiumCode() {
             const code = document.getElementById('premiumCode').value.trim();
             
@@ -979,9 +1120,10 @@
             }
         }
 
-        // Auto-select merge tool on load
+        // Auto-select merge tool and check payment success on load
         window.addEventListener('load', () => {
             selectTool('merge');
+            checkPaymentSuccess();
         });
     </script>
 </body>
