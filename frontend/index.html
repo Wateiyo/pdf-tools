@@ -7,9 +7,6 @@
     <meta name="description" content="Free PDF tools to merge, split, compress, edit, repair and convert PDF files online. No downloads required.">
     <meta name="keywords" content="merge pdf, split pdf, compress pdf, edit pdf, convert pdf, pdf tools, online pdf editor">
     
-    <!-- PayPal SDK - Remove this line since we're using simple PayPal buttons -->
-    <!-- <script src="https://www.paypal.com/sdk/js?client-id=YOUR_PAYPAL_CLIENT_ID&currency=USD"></script> -->
-    
     <style>
         * {
             margin: 0;
@@ -61,14 +58,6 @@
 
         .nav a:hover {
             color: #e53e3e;
-        }
-
-        .backend-status {
-            background: #fed7d7;
-            color: #c53030;
-            padding: 5px 10px;
-            border-radius: 20px;
-            font-size: 0.8rem;
         }
 
         /* Hero Section */
@@ -171,6 +160,22 @@
             color: #666;
             font-size: 0.95rem;
             line-height: 1.5;
+            margin-bottom: 15px;
+        }
+
+        .tool-limits {
+            background: #f0f8ff;
+            border: 1px solid #bee3f8;
+            border-radius: 6px;
+            padding: 8px 12px;
+            font-size: 0.8rem;
+            color: #2a69ac;
+        }
+
+        .tool-limits.premium {
+            background: #fff8dc;
+            border-color: #f6ad55;
+            color: #744210;
         }
 
         /* Active Tool Section */
@@ -491,7 +496,6 @@
                 <a href="#repair">Repair</a>
                 <a href="#convert">Convert</a>
             </nav>
-
         </div>
     </header>
 
@@ -522,36 +526,42 @@
                 <div class="tool-icon merge-icon">📄</div>
                 <h3 class="tool-title">Merge PDFs</h3>
                 <p class="tool-description">Combine multiple PDFs into one document</p>
+                <div class="tool-limits">Free: 5 files • Premium: Unlimited</div>
             </div>
 
             <div class="tool-card" id="compress" onclick="selectTool('compress')">
                 <div class="tool-icon compress-icon">⚡</div>
                 <h3 class="tool-title">Compress PDF</h3>
                 <p class="tool-description">Reduce PDF file size without quality loss</p>
+                <div class="tool-limits">Free: 1 file • Premium: Unlimited + Advanced compression</div>
             </div>
 
             <div class="tool-card" id="split" onclick="selectTool('split')">
                 <div class="tool-icon split-icon">✂️</div>
                 <h3 class="tool-title">Split PDF</h3>
                 <p class="tool-description">Extract specific pages from PDF files</p>
+                <div class="tool-limits">Free: Basic split • Premium: Advanced ranges + Unlimited</div>
             </div>
 
             <div class="tool-card" id="edit" onclick="selectTool('edit')">
                 <div class="tool-icon edit-icon">✏️</div>
                 <h3 class="tool-title">Edit PDF</h3>
                 <p class="tool-description">Add text, rotate pages, and modify content</p>
+                <div class="tool-limits premium">Premium Only - $2 for 24h access</div>
             </div>
 
             <div class="tool-card" id="repair" onclick="selectTool('repair')">
                 <div class="tool-icon repair-icon">🔧</div>
                 <h3 class="tool-title">Repair PDF</h3>
                 <p class="tool-description">Fix corrupted or damaged PDF files</p>
+                <div class="tool-limits">Free: 1 file • Premium: Unlimited + Deep repair</div>
             </div>
 
             <div class="tool-card" id="convert" onclick="selectTool('convert')">
                 <div class="tool-icon convert-icon">🔄</div>
                 <h3 class="tool-title">Convert PDF</h3>
                 <p class="tool-description">Convert PDFs to Word, Excel, or images</p>
+                <div class="tool-limits">Free: 2 files • Premium: Unlimited + High quality</div>
             </div>
         </div>
     </section>
@@ -593,14 +603,17 @@
                 <div class="duration">24 hours unlimited access</div>
                 
                 <ul class="premium-features">
-                    <li>Process unlimited files</li>
+                    <li>Process unlimited files on all tools</li>
                     <li>No file size restrictions</li>
-                    <li>High-quality processing</li>
+                    <li>Advanced split options (custom ranges, equal parts)</li>
+                    <li>High-quality conversions and compression</li>
+                    <li>Access to Edit PDF tool</li>
+                    <li>Deep repair functionality</li>
                     <li>Priority support</li>
                     <li>No watermarks</li>
                 </ul>
                 
-                <!-- PayPal Button (Simple Personal Account Method) -->
+                <!-- PayPal Button -->
                 <div id="paypal-button-container">
                     <form action="https://www.paypal.com/cgi-bin/webscr" method="post" target="paypal_popup" onsubmit="openPayPalPopup()">
                         <input type="hidden" name="cmd" value="_xclick" />
@@ -608,11 +621,10 @@
                         <input type="hidden" name="item_name" value="PDF Tools Premium Access - 24 Hours" />
                         <input type="hidden" name="amount" value="2.00" />
                         <input type="hidden" name="currency_code" value="USD" />
-                        <input type="hidden" name="return" value="https://pdf-tools-72z5.onrender.com/success.html" />
-                        <input type="hidden" name="cancel_return" value="https://pdf-tools-72z5.onrender.com" />
+                        <input type="hidden" name="return" value="https://srv-d358t78dl3ps738fkjpg.onrender.com/?payment=success" />
+                        <input type="hidden" name="cancel_return" value="https://srv-d358t78dl3ps738fkjpg.onrender.com" />
                         <input type="hidden" name="notify_url" value="https://pdf-tools-3r9n.onrender.com/api/paypal-ipn" />
                         
-                        <!-- Custom styling to match your design -->
                         <button type="submit" style="
                             background: linear-gradient(135deg, #0070ba, #003087);
                             color: white;
@@ -636,7 +648,7 @@
                         </button>
                     </form>
                     
-                    <!-- Alternative: Quick Premium Code Entry -->
+                    <!-- Premium Code Entry -->
                     <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #e2e8f0;">
                         <p style="font-size: 0.9rem; color: #666; margin-bottom: 10px;">Already paid? Enter your code:</p>
                         <div style="display: flex; gap: 10px;">
@@ -692,31 +704,26 @@
             <p>&copy; 2025 PDF Utility Suite. All rights reserved.</p>
         </div>
     </footer>
-
     <script>
-        // ===== BACKEND URL CONFIGURATION =====
-        // Replace 'your-backend-name' with your actual Render backend service name
+        // Backend URL configuration
         const BACKEND_URL = window.location.hostname === 'localhost' 
             ? 'http://localhost:3001' 
             : 'https://pdf-tools-3r9n.onrender.com';
         
         console.log('Backend URL configured as:', BACKEND_URL);
         
-        // ===== APPLICATION VARIABLES =====
-
-        // ===== APPLICATION VARIABLES =====
         let currentTool = '';
         let selectedFiles = [];
         let userHasPremium = checkPremiumStatus();
 
-        // ===== TOOL CONFIGURATIONS =====
+        // Tool configurations with freemium limits
         const toolConfigs = {
-            merge: { title: 'Merge PDFs Online', freeLimit: 3, requiresPremium: false },
-            compress: { title: 'Compress PDF Online', freeLimit: 0, requiresPremium: true },
+            merge: { title: 'Merge PDFs Online', freeLimit: 5, requiresPremium: false },
+            compress: { title: 'Compress PDF Online', freeLimit: 1, requiresPremium: false },
             split: { title: 'Split PDF Online', freeLimit: 1, requiresPremium: false },
             edit: { title: 'Edit PDF Online', freeLimit: 0, requiresPremium: true },
-            repair: { title: 'Repair PDF Online', freeLimit: 0, requiresPremium: true },
-            convert: { title: 'Convert PDF Online', freeLimit: 1, requiresPremium: false }
+            repair: { title: 'Repair PDF Online', freeLimit: 1, requiresPremium: false },
+            convert: { title: 'Convert PDF Online', freeLimit: 2, requiresPremium: false }
         };
 
         // Check premium status
@@ -746,17 +753,19 @@
             document.getElementById('activeToolTitle').textContent = config.title;
             document.getElementById('processBtn').textContent = `Process ${tool.charAt(0).toUpperCase() + tool.slice(1)}`;
             
-            // Clear previous files
+            // Clear previous files and options
             selectedFiles = [];
             document.getElementById('fileInput').value = '';
             document.getElementById('fileList').innerHTML = '';
             document.getElementById('processBtn').style.display = 'none';
             
-            // Add conversion format options for convert tool
-            const uploadArea = document.querySelector('.upload-area');
-            const existingOptions = document.getElementById('convertOptions');
-            if (existingOptions) existingOptions.remove();
+            // Remove existing options
+            const existingOptions = document.querySelectorAll('#convertOptions, #splitOptions');
+            existingOptions.forEach(option => option.remove());
             
+            const uploadArea = document.querySelector('.upload-area');
+            
+            // Add convert options
             if (tool === 'convert') {
                 const convertOptions = document.createElement('div');
                 convertOptions.id = 'convertOptions';
@@ -785,45 +794,143 @@
                                 <span>📄 Text (.txt)</span>
                             </label>
                         </div>
-                        ${!userHasPremium ? '<p style="color: #666; font-size: 0.9rem; margin-top: 10px;">🎯 Premium users get higher quality conversions and more format options!</p>' : ''}
+                        <div style="margin-top: 15px; padding: 12px; background: #fff8dc; border-radius: 6px; border-left: 4px solid #f6ad55;">
+                            <strong>Free vs Premium:</strong><br>
+                            • Free: Basic text extraction and simple formatting<br>
+                            • Premium: Advanced OCR, preserved formatting, images, and tables
+                        </div>
                     </div>
                 `;
                 
                 uploadArea.parentNode.insertBefore(convertOptions, uploadArea.nextSibling);
+                addConvertHoverEffects(convertOptions);
+            }
+            
+            // Add split options
+            if (tool === 'split') {
+                const splitOptions = document.createElement('div');
+                splitOptions.id = 'splitOptions';
+                splitOptions.innerHTML = `
+                    <div style="margin: 20px 0; padding: 20px; background: #f7fafc; border-radius: 10px;">
+                        <h4 style="margin-bottom: 15px; color: #2d3748;">Choose Split Method:</h4>
+                        <div style="margin-bottom: 20px;">
+                            <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; cursor: pointer;">
+                                <input type="radio" name="splitMethod" value="all_pages" checked>
+                                <span>Split into individual pages (1 page per file)</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; cursor: pointer;" ${!userHasPremium ? 'style="opacity: 0.6;"' : ''}>
+                                <input type="radio" name="splitMethod" value="page_ranges" ${!userHasPremium ? 'disabled' : ''}>
+                                <span>Split by page ranges (specify custom ranges) ${!userHasPremium ? '- Premium' : ''}</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; cursor: pointer;" ${!userHasPremium ? 'style="opacity: 0.6;"' : ''}>
+                                <input type="radio" name="splitMethod" value="equal_parts" ${!userHasPremium ? 'disabled' : ''}>
+                                <span>Split into equal parts ${!userHasPremium ? '- Premium' : ''}</span>
+                            </label>
+                        </div>
+                        
+                        <div id="splitCustomOptions" style="display: none; margin-top: 15px;">
+                            <div id="pageRangesInput" style="display: none;">
+                                <label style="display: block; margin-bottom: 8px; font-weight: 500;">Page Ranges (e.g., 1-3, 5-7, 10):</label>
+                                <input type="text" id="pageRanges" placeholder="1-3, 5-7, 10" style="
+                                    width: 100%;
+                                    padding: 10px;
+                                    border: 1px solid #e2e8f0;
+                                    border-radius: 6px;
+                                    font-size: 0.9rem;
+                                " />
+                                <p style="color: #666; font-size: 0.8rem; margin-top: 5px;">Enter page ranges separated by commas. Use hyphens for ranges (e.g., 1-5 for pages 1 to 5)</p>
+                            </div>
+                            
+                            <div id="equalPartsInput" style="display: none;">
+                                <label style="display: block; margin-bottom: 8px; font-weight: 500;">Number of Parts:</label>
+                                <input type="number" id="numberOfParts" min="2" max="50" value="2" style="
+                                    width: 100px;
+                                    padding: 10px;
+                                    border: 1px solid #e2e8f0;
+                                    border-radius: 6px;
+                                    font-size: 0.9rem;
+                                " />
+                                <p style="color: #666; font-size: 0.8rem; margin-top: 5px;">Split the PDF into this many equal parts</p>
+                            </div>
+                        </div>
+                        
+                        <div style="margin-top: 15px; padding: 12px; background: #fff8dc; border-radius: 6px; border-left: 4px solid #f6ad55;">
+                            <strong>Free vs Premium:</strong><br>
+                            • Free: Split into individual pages only<br>
+                            • Premium: Custom page ranges, equal parts, unlimited file size
+                        </div>
+                    </div>
+                `;
                 
-                // Add hover effects
-                const labels = convertOptions.querySelectorAll('label');
-                labels.forEach(label => {
-                    label.addEventListener('mouseenter', () => {
-                        label.style.borderColor = '#e53e3e';
-                        label.style.backgroundColor = '#fed7d7';
-                    });
-                    label.addEventListener('mouseleave', () => {
-                        if (!label.querySelector('input').checked) {
-                            label.style.borderColor = '#e2e8f0';
-                            label.style.backgroundColor = 'white';
-                        }
-                    });
-                    label.addEventListener('change', () => {
-                        labels.forEach(l => {
-                            l.style.borderColor = '#e2e8f0';
-                            l.style.backgroundColor = 'white';
-                        });
-                        if (label.querySelector('input').checked) {
-                            label.style.borderColor = '#e53e3e';
-                            label.style.backgroundColor = '#fed7d7';
-                        }
-                    });
-                });
+                uploadArea.parentNode.insertBefore(splitOptions, uploadArea.nextSibling);
+                addSplitEventListeners(splitOptions);
             }
             
             // Scroll to active tool section
             document.getElementById('activeToolSection').scrollIntoView({ behavior: 'smooth' });
             
-            // Check if premium is required
+            // Check if premium is required for this tool
             if (config.requiresPremium && !userHasPremium) {
                 showPremiumModal();
             }
+        }
+
+        // Helper functions for option effects
+        function addConvertHoverEffects(convertOptions) {
+            const labels = convertOptions.querySelectorAll('label');
+            labels.forEach(label => {
+                label.addEventListener('mouseenter', () => {
+                    label.style.borderColor = '#e53e3e';
+                    label.style.backgroundColor = '#fed7d7';
+                });
+                label.addEventListener('mouseleave', () => {
+                    if (!label.querySelector('input').checked) {
+                        label.style.borderColor = '#e2e8f0';
+                        label.style.backgroundColor = 'white';
+                    }
+                });
+                label.addEventListener('change', () => {
+                    labels.forEach(l => {
+                        l.style.borderColor = '#e2e8f0';
+                        l.style.backgroundColor = 'white';
+                    });
+                    if (label.querySelector('input').checked) {
+                        label.style.borderColor = '#e53e3e';
+                        label.style.backgroundColor = '#fed7d7';
+                    }
+                });
+            });
+        }
+
+        function addSplitEventListeners(splitOptions) {
+            const splitMethodRadios = splitOptions.querySelectorAll('input[name="splitMethod"]');
+            const customOptions = splitOptions.querySelector('#splitCustomOptions');
+            const pageRangesInput = splitOptions.querySelector('#pageRangesInput');
+            const equalPartsInput = splitOptions.querySelector('#equalPartsInput');
+            
+            splitMethodRadios.forEach(radio => {
+                radio.addEventListener('change', () => {
+                    if (radio.disabled && !userHasPremium) {
+                        radio.checked = false;
+                        document.querySelector('input[name="splitMethod"][value="all_pages"]').checked = true;
+                        showPremiumModal();
+                        return;
+                    }
+                    
+                    if (radio.value === 'all_pages') {
+                        customOptions.style.display = 'none';
+                    } else {
+                        customOptions.style.display = 'block';
+                        if (radio.value === 'page_ranges') {
+                            pageRangesInput.style.display = 'block';
+                            equalPartsInput.style.display = 'none';
+                        } else if (radio.value === 'equal_parts') {
+                            pageRangesInput.style.display = 'none';
+                            equalPartsInput.style.display = 'block';
+                        }
+                    }
+                });
+            });
         }
 
         // File input handler
@@ -836,6 +943,7 @@
             // Check limits for free users
             if (!userHasPremium && config.freeLimit > 0 && files.length > config.freeLimit) {
                 alert(`Free version allows maximum ${config.freeLimit} files. Upgrade to premium for unlimited access.`);
+                showPremiumModal();
                 return;
             }
             
@@ -871,7 +979,7 @@
             displayFiles();
         }
 
-        // Process files (with premium checks restored)
+        // Process files
         async function processFiles() {
             if (selectedFiles.length === 0) return;
             
@@ -901,6 +1009,20 @@
                 formData.append('tool', currentTool);
                 formData.append('hasPremium', userHasPremium.toString());
                 
+                // Add split options
+                if (currentTool === 'split') {
+                    const splitMethod = document.querySelector('input[name="splitMethod"]:checked')?.value || 'all_pages';
+                    formData.append('splitMethod', splitMethod);
+                    
+                    if (splitMethod === 'page_ranges') {
+                        const pageRanges = document.getElementById('pageRanges')?.value || '';
+                        formData.append('pageRanges', pageRanges);
+                    } else if (splitMethod === 'equal_parts') {
+                        const numberOfParts = document.getElementById('numberOfParts')?.value || '2';
+                        formData.append('numberOfParts', numberOfParts);
+                    }
+                }
+                
                 // Add conversion format for convert tool
                 if (currentTool === 'convert') {
                     const selectedFormat = document.querySelector('input[name="convertFormat"]:checked');
@@ -910,12 +1032,6 @@
                 }
                 
                 console.log('Sending request to:', `${BACKEND_URL}/api/process-pdf`);
-                console.log('Form data contents:', {
-                    tool: currentTool,
-                    hasPremium: userHasPremium.toString(),
-                    fileCount: selectedFiles.length,
-                    convertTo: currentTool === 'convert' ? (document.querySelector('input[name="convertFormat"]:checked')?.value || 'not selected') : 'N/A'
-                });
                 
                 const response = await fetch(`${BACKEND_URL}/api/process-pdf`, {
                     method: 'POST',
@@ -954,10 +1070,9 @@
             } catch (error) {
                 console.error('Processing error:', error);
                 
-                // More user-friendly error messages
                 let errorMessage = 'Processing failed. ';
-                if (error.message.includes('Failed to fetch') || error.message.includes('BACKEND_URL is not defined')) {
-                    errorMessage += 'Cannot connect to server. Please check if backend URL is configured correctly.';
+                if (error.message.includes('Failed to fetch')) {
+                    errorMessage += 'Cannot connect to server. Please try again later.';
                 } else if (error.message.includes('413')) {
                     errorMessage += 'File too large. Please use smaller files.';
                 } else if (error.message.includes('400')) {
@@ -976,7 +1091,6 @@
         // Premium modal functions
         function showPremiumModal() {
             document.getElementById('premiumModal').style.display = 'block';
-            // No need for initPayPal() since we're using simple buttons
         }
 
         function closePremiumModal() {
@@ -985,7 +1099,6 @@
 
         // PayPal and Premium Functions
         function openPayPalPopup() {
-            // Open PayPal in a popup window
             const popup = window.open('', 'paypal_popup', 'width=600,height=700,scrollbars=yes,resizable=yes');
             return true;
         }
@@ -993,7 +1106,6 @@
         // Listen for payment success messages
         window.addEventListener('message', function(event) {
             if (event.data === 'payment_success') {
-                // Grant premium access
                 const expiry = new Date();
                 expiry.setHours(expiry.getHours() + 24);
                 
@@ -1005,7 +1117,6 @@
                 
                 alert('🎉 Payment successful! You now have 24-hour premium access to all tools!');
                 
-                // Continue with the selected tool
                 if (currentTool) {
                     selectTool(currentTool);
                 }
@@ -1016,7 +1127,6 @@
         function checkPaymentSuccess() {
             const urlParams = new URLSearchParams(window.location.search);
             if (urlParams.get('payment') === 'success') {
-                // Grant premium access
                 const expiry = new Date();
                 expiry.setHours(expiry.getHours() + 24);
                 
@@ -1024,11 +1134,7 @@
                 localStorage.setItem('premiumExpiry', expiry.toISOString());
                 
                 userHasPremium = true;
-                
-                // Show success message
                 showSuccessMessage();
-                
-                // Clean up URL
                 window.history.replaceState({}, document.title, window.location.pathname);
             }
         }
@@ -1074,10 +1180,10 @@
             
             document.body.insertAdjacentHTML('beforeend', successHtml);
         }
+
         function activatePremiumCode() {
             const code = document.getElementById('premiumCode').value.trim();
             
-            // Simple premium codes (you can generate these)
             const validCodes = [
                 'PREMIUM24H',
                 'TESTCODE123',
