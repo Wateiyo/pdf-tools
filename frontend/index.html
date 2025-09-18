@@ -7,8 +7,8 @@
     <meta name="description" content="Free PDF tools to merge, split, compress, edit, repair and convert PDF files online. No downloads required.">
     <meta name="keywords" content="merge pdf, split pdf, compress pdf, edit pdf, convert pdf, pdf tools, online pdf editor">
     
-    <!-- PayPal SDK -->
-    <script src="https://www.paypal.com/sdk/js?client-id=sb&currency=USD"></script>
+    <!-- PayPal SDK - Using PayPal's test client ID for demo -->
+    <script src="https://www.paypal.com/sdk/js?client-id=AZDxjDScFpQtjWTOUtWKbyN_bDt4OgqaF4eYXlewfBP4-8aqX3PiV8e1GWU6liB2CUXlkA59kJXE7M6R&currency=USD"></script>
     
     <style>
         * {
@@ -764,35 +764,26 @@
             }
 
             paypal.Buttons({
-                createOrder: async function(data, actions) {
-                    try {
-                        const response = await fetch(`${BACKEND_URL}/api/create-paypal-order`, {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'X-User-ID': userId
-                            }
-                        });
-                        
-                        const result = await response.json();
-                        paypalOrderId = result.orderId;
-                        
-                        return actions.order.create({
-                            purchase_units: [{
-                                amount: {
-                                    value: '2.00'
-                                },
-                                description: 'PDF Tools Premium Access - 24 Hours'
-                            }]
-                        });
-                    } catch (error) {
-                        console.error('Error creating PayPal order:', error);
-                        alert('Error creating payment. Please try again.');
-                    }
+                createOrder: function(data, actions) {
+                    return actions.order.create({
+                        purchase_units: [{
+                            amount: {
+                                value: '2.00',
+                                currency_code: 'USD'
+                            },
+                            description: 'PDF Tools Premium Access - 24 Hours'
+                        }]
+                    });
                 },
                 
                 onApprove: async function(data, actions) {
                     try {
+                        // Capture the payment
+                        const details = await actions.order.capture();
+                        
+                        console.log('PayPal payment captured:', details);
+                        
+                        // Send payment details to backend for verification
                         const response = await fetch(`${BACKEND_URL}/api/capture-paypal-payment`, {
                             method: 'POST',
                             headers: {
@@ -800,7 +791,9 @@
                                 'X-User-ID': userId
                             },
                             body: JSON.stringify({
-                                orderId: paypalOrderId
+                                orderId: data.orderID,
+                                payerId: data.payerID,
+                                paymentDetails: details
                             })
                         });
                         
@@ -809,23 +802,37 @@
                         if (result.success) {
                             closePremiumModal();
                             await loadUserStatus();
-                            showSuccessMessage(result.message);
+                            showSuccessMessage(result.message || 'Payment successful! You now have 24-hour premium access.');
                             
                             if (currentTool) {
                                 selectTool(currentTool);
                             }
                         } else {
-                            alert('Payment verification failed. Please contact support.');
+                            console.error('Backend verification failed:', result);
+                            alert('Payment verification failed. Please contact support with order ID: ' + data.orderID);
                         }
                     } catch (error) {
-                        console.error('Error capturing payment:', error);
+                        console.error('Error processing payment:', error);
                         alert('Payment processing failed. Please contact support.');
                     }
                 },
                 
                 onError: function(err) {
                     console.error('PayPal error:', err);
-                    alert('Payment failed. Please try again.');
+                    alert('Payment failed. Please try again or contact support.');
+                },
+                
+                onCancel: function(data) {
+                    console.log('PayPal payment cancelled:', data);
+                    // Payment was cancelled, do nothing special
+                },
+
+                style: {
+                    layout: 'vertical',
+                    color: 'blue',
+                    shape: 'rect',
+                    label: 'paypal',
+                    height: 45
                 }
             }).render('#paypal-button-container');
         }

@@ -554,32 +554,48 @@ app.post('/api/create-paypal-order', async (req, res) => {
 // Capture PayPal payment endpoint
 app.post('/api/capture-paypal-payment', async (req, res) => {
     try {
-        const { orderId } = req.body;
+        const { orderId, payerId, paymentDetails } = req.body;
         const userId = req.headers['x-user-id'];
         
-        const payment = activePayments.get(orderId);
-        if (!payment || payment.userId !== userId) {
-            return res.status(404).json({ error: 'Payment not found' });
+        console.log('Processing PayPal payment:', {
+            orderId,
+            payerId,
+            userId,
+            paymentStatus: paymentDetails?.status
+        });
+        
+        // Verify payment was completed successfully
+        if (paymentDetails?.status !== 'COMPLETED') {
+            return res.status(400).json({ 
+                error: 'Payment not completed',
+                status: paymentDetails?.status
+            });
         }
         
-        // In production, verify payment with PayPal API
-        // For demo purposes, we'll simulate successful payment
+        // Verify payment amount (basic validation)
+        const paymentAmount = paymentDetails?.purchase_units?.[0]?.payments?.captures?.[0]?.amount?.value;
+        if (paymentAmount !== '2.00') {
+            console.error('Invalid payment amount:', paymentAmount);
+            return res.status(400).json({ error: 'Invalid payment amount' });
+        }
         
-        const { session } = getUserSession(userId);
+        // Get or create user session
+        const { userId: finalUserId, session } = getUserSession(userId);
+        
+        // Grant premium access for 24 hours
         const premiumExpiry = new Date();
         premiumExpiry.setHours(premiumExpiry.getHours() + 24);
         
         session.premiumUntil = premiumExpiry;
-        userSessions.set(userId, session);
+        userSessions.set(finalUserId, session);
         
-        // Mark payment as completed
-        payment.status = 'completed';
-        activePayments.set(orderId, payment);
+        console.log(`Premium access granted to user ${finalUserId} until ${premiumExpiry}`);
         
         res.json({
             success: true,
             premiumUntil: premiumExpiry.toISOString(),
-            message: 'Payment successful! You now have 24-hour premium access.'
+            message: 'Payment successful! You now have 24-hour premium access.',
+            orderId: orderId
         });
         
     } catch (error) {
