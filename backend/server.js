@@ -10,7 +10,46 @@ require('dotenv').config();
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Middleware - CORS Configuration
+// In-memory storage for user sessions and usage tracking
+// In production, use a database like Redis or MongoDB
+const userSessions = new Map(); // userId -> { usage: {tool: count}, premiumUntil: Date }
+const activePayments = new Map(); // paymentId -> { userId, amount, status }
+
+// Generate unique user ID
+function generateUserId() {
+    return `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+}
+
+// Get or create user session
+function getUserSession(userId) {
+    if (!userId || !userSessions.has(userId)) {
+        const newUserId = generateUserId();
+        userSessions.set(newUserId, {
+            usage: { merge: 0, compress: 0, split: 0, edit: 0, repair: 0, convert: 0 },
+            premiumUntil: null,
+            createdAt: new Date()
+        });
+        return { userId: newUserId, session: userSessions.get(newUserId) };
+    }
+    return { userId, session: userSessions.get(userId) };
+}
+
+// Check if user has premium access
+function hasPremiumAccess(session) {
+    return session.premiumUntil && new Date() < session.premiumUntil;
+}
+
+// Updated tool configurations with new freemium model
+const toolConfigs = {
+    merge: { requiresPremium: false, freeLimit: null }, // Fully free
+    compress: { requiresPremium: false, freeLimit: null }, // Fully free
+    split: { requiresPremium: false, freeLimit: 5 }, // 5 free uses
+    edit: { requiresPremium: false, freeLimit: 2 }, // 2 free tries
+    repair: { requiresPremium: false, freeLimit: 2 }, // 2 free tries
+    convert: { requiresPremium: false, freeLimit: null } // Free for basic formats, premium for advanced
+};
+
+// Middleware
 app.use(cors({
     origin: function (origin, callback) {
         if (!origin) return callback(null, true);
@@ -33,13 +72,13 @@ app.use(cors({
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-User-ID'],
     optionsSuccessStatus: 200
 }));
 app.use(express.json());
 app.use(express.static('public'));
 
-// Configure multer for file uploads
+// Configure multer
 const storage = multer.memoryStorage();
 const upload = multer({
     storage: storage,
@@ -71,12 +110,11 @@ async function ensureDirectories() {
 
 ensureDirectories();
 
-// Helper function to generate unique filename
+// Helper functions
 function generateFileName(prefix = 'processed') {
     return `${prefix}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.pdf`;
 }
 
-// Helper function to create zip file
 async function createZipFile(files, outputPath) {
     return new Promise((resolve, reject) => {
         const output = require('fs').createWriteStream(outputPath);
@@ -104,7 +142,6 @@ async function createZipFile(files, outputPath) {
 }
 
 // PDF Processing Functions
-
 async function mergePDFs(files) {
     const mergedPdf = await PDFDocument.create();
     
@@ -121,8 +158,6 @@ async function splitPDF(file, options = {}) {
     const pdfDoc = await PDFDocument.load(file.buffer);
     const totalPages = pdfDoc.getPageCount();
     const { splitMethod, pageRanges, numberOfParts } = options;
-    
-    console.log('Split options:', { splitMethod, pageRanges, numberOfParts, totalPages });
     
     if (splitMethod === 'page_ranges' && pageRanges) {
         const ranges = parsePageRanges(pageRanges, totalPages);
@@ -188,7 +223,6 @@ async function splitPDF(file, options = {}) {
     }
 }
 
-// Helper function to parse page ranges
 function parsePageRanges(rangeString, totalPages) {
     const ranges = [];
     const parts = rangeString.split(',').map(s => s.trim());
@@ -217,21 +251,12 @@ function parsePageRanges(rangeString, totalPages) {
 async function compressPDF(file, isPremium = false) {
     const pdfDoc = await PDFDocument.load(file.buffer);
     
-    // Remove metadata to reduce size
     pdfDoc.setTitle('');
     pdfDoc.setAuthor('');
     pdfDoc.setSubject('');
     pdfDoc.setKeywords([]);
     pdfDoc.setCreator('');
-    pdfDoc.setProducer(isPremium ? 'PDF Tools Suite Premium' : 'PDF Tools Suite');
-    
-    if (!isPremium) {
-        // Add subtle watermark for free users
-        const pages = pdfDoc.getPages();
-        pages.forEach(page => {
-            // This would add a subtle watermark in a real implementation
-        });
-    }
+    pdfDoc.setProducer('PDF Tools Suite');
     
     return await pdfDoc.save();
 }
@@ -239,12 +264,6 @@ async function compressPDF(file, isPremium = false) {
 async function repairPDF(file, isPremium = false) {
     try {
         const pdfDoc = await PDFDocument.load(file.buffer);
-        
-        if (isPremium) {
-            // Premium users get additional repair attempts
-            // In a real implementation, this would include more sophisticated repair logic
-        }
-        
         return await pdfDoc.save();
     } catch (error) {
         throw new Error('PDF repair failed: File may be severely corrupted');
@@ -266,63 +285,72 @@ async function editPDF(file, edits) {
     return await pdfDoc.save();
 }
 
-// Handle preflight OPTIONS requests
-app.options('*', (req, res) => {
-    res.status(200).end();
+// API Routes
+
+// Get user status endpoint
+app.get('/api/user-status', (req, res) => {
+    const userId = req.headers['x-user-id'];
+    const { userId: finalUserId, session } = getUserSession(userId);
+    
+    const isPremium = hasPremiumAccess(session);
+    
+    res.json({
+        userId: finalUserId,
+        isPremium,
+        premiumUntil: session.premiumUntil,
+        usage: session.usage
+    });
 });
 
-// API Routes
+// Process PDF endpoint
 app.post('/api/process-pdf', upload.array('files', 20), async (req, res) => {
     try {
-        console.log('Received request:', {
-            tool: req.body.tool,
-            hasPremium: req.body.hasPremium,
-            fileCount: req.files ? req.files.length : 0,
-            convertTo: req.body.convertTo,
-            splitMethod: req.body.splitMethod
+        const userId = req.headers['x-user-id'];
+        const { userId: finalUserId, session } = getUserSession(userId);
+        const { tool, convertTo } = req.body;
+        const files = req.files;
+        
+        console.log('Processing request:', {
+            tool,
+            userId: finalUserId,
+            fileCount: files ? files.length : 0,
+            convertTo
         });
         
-        const { tool, hasPremium } = req.body;
-        const files = req.files;
-        const isPremium = hasPremium === 'true';
-        
         if (!files || files.length === 0) {
-            console.error('No files uploaded');
             return res.status(400).json({ error: 'No files uploaded' });
         }
         
         if (!tool) {
-            console.error('No tool specified');
             return res.status(400).json({ error: 'No tool specified' });
         }
         
-        // Updated tool configurations with freemium limits
-        const toolConfigs = {
-            merge: { requiresPremium: false, freeLimit: 5 },
-            compress: { requiresPremium: false, freeLimit: 1 },
-            split: { requiresPremium: false, freeLimit: 1 },
-            edit: { requiresPremium: true, freeLimit: 0 },
-            repair: { requiresPremium: false, freeLimit: 1 },
-            convert: { requiresPremium: false, freeLimit: 2 }
-        };
-        
         const config = toolConfigs[tool];
-        if (!config) {
-            return res.status(400).json({ error: 'Invalid tool specified' });
-        }
+        const isPremium = hasPremiumAccess(session);
+        const currentUsage = session.usage[tool] || 0;
         
-        // Check if tool requires premium and user doesn't have it
-        if (config.requiresPremium && !isPremium) {
-            return res.status(403).json({ error: 'Premium access required for this tool' });
-        }
-        
-        // Check free limits for non-premium users
-        if (!isPremium && config.freeLimit > 0 && files.length > config.freeLimit) {
+        // Check usage limits
+        if (!isPremium && config.freeLimit !== null && currentUsage >= config.freeLimit) {
             return res.status(403).json({ 
-                error: `Free version allows maximum ${config.freeLimit} files. Upgrade to premium for unlimited access.` 
+                error: `Free limit reached for ${tool}. You've used ${currentUsage}/${config.freeLimit} free uses.`,
+                userId: finalUserId
             });
         }
         
+        // Special handling for convert tool
+        if (tool === 'convert') {
+            const freeFormats = ['word', 'text', 'excel'];
+            const premiumFormats = ['powerpoint', 'images'];
+            
+            if (!isPremium && convertTo && premiumFormats.includes(convertTo)) {
+                return res.status(403).json({ 
+                    error: `Premium access required for ${convertTo} conversion.`,
+                    userId: finalUserId
+                });
+            }
+        }
+        
+        // Process the files
         let result;
         let filename;
         
@@ -339,13 +367,6 @@ app.post('/api/process-pdf', upload.array('files', 20), async (req, res) => {
                     pageRanges: req.body.pageRanges || '',
                     numberOfParts: req.body.numberOfParts || '2'
                 };
-                
-                // Restrict advanced split options to premium users
-                if (!isPremium && (splitOptions.splitMethod === 'page_ranges' || splitOptions.splitMethod === 'equal_parts')) {
-                    return res.status(403).json({ 
-                        error: 'Advanced split options require premium access' 
-                    });
-                }
                 
                 const splitResults = await splitPDF(files[0], splitOptions);
                 
@@ -367,7 +388,7 @@ app.post('/api/process-pdf', upload.array('files', 20), async (req, res) => {
                 
             case 'compress':
                 const compressedBuffer = await compressPDF(files[0], isPremium);
-                filename = generateFileName(isPremium ? 'compressed_premium' : 'compressed');
+                filename = generateFileName('compressed');
                 result = { buffer: compressedBuffer, filename };
                 break;
                 
@@ -378,53 +399,45 @@ app.post('/api/process-pdf', upload.array('files', 20), async (req, res) => {
                 break;
                 
             case 'convert':
-                const convertTo = req.body.convertTo || 'word';
                 const pdfDoc = await PDFDocument.load(files[0].buffer);
-                
                 let convertedBuffer, convertedFilename, fileExtension;
-                const qualityNote = isPremium ? 'High-quality premium conversion with advanced formatting preservation.' : 'Basic conversion. Premium users get enhanced quality and formatting.';
+                const qualityNote = isPremium ? 'High-quality premium conversion' : 'Basic conversion';
                 
                 switch (convertTo) {
                     case 'word':
                         const pageCount = pdfDoc.getPageCount();
-                        const wordContent = `${pdfDoc.getTitle() || 'Converted Document'}\n\n` +
-                            `Pages: ${pageCount}\n` +
-                            `Conversion Type: PDF to Word\n` +
-                            `Quality: ${isPremium ? 'Premium' : 'Basic'}\n\n` +
-                            `${qualityNote}\n\n` +
-                            `[Document content would appear here with ${isPremium ? 'preserved formatting, images, and tables' : 'basic text extraction'}]`;
-                        
+                        const wordContent = `${pdfDoc.getTitle() || 'Converted Document'}\n\nPages: ${pageCount}\nConversion: PDF to Word\nQuality: ${isPremium ? 'Premium' : 'Basic'}\n\n${qualityNote}\n\n[Document content would appear here]`;
                         convertedBuffer = Buffer.from(wordContent);
                         fileExtension = '.txt';
                         convertedFilename = generateFileName('converted_to_word').replace('.pdf', fileExtension);
                         break;
                         
                     case 'excel':
-                        const excelContent = `PDF Analysis Report\nPages,${pdfDoc.getPageCount()}\nTitle,${pdfDoc.getTitle() || 'Untitled'}\nQuality,${isPremium ? 'Premium' : 'Basic'}\nConverted,${new Date().toISOString()}\n\n"Note","${qualityNote}"`;
+                        const excelContent = `PDF Analysis Report\nPages,${pdfDoc.getPageCount()}\nTitle,${pdfDoc.getTitle() || 'Untitled'}\nQuality,${isPremium ? 'Premium' : 'Basic'}`;
                         convertedBuffer = Buffer.from(excelContent);
                         fileExtension = '.csv';
                         convertedFilename = generateFileName('converted_to_excel').replace('.pdf', fileExtension);
                         break;
                         
+                    case 'text':
+                        const textContent = `Text Extraction from PDF\n\nDocument: ${pdfDoc.getTitle() || 'Untitled'}\nPages: ${pdfDoc.getPageCount()}\nQuality: ${isPremium ? 'Premium' : 'Basic'}\n\n${qualityNote}\n\n[Extracted text would appear here]`;
+                        convertedBuffer = Buffer.from(textContent);
+                        fileExtension = '.txt';
+                        convertedFilename = generateFileName('extracted_text').replace('.pdf', fileExtension);
+                        break;
+                        
                     case 'powerpoint':
-                        const pptContent = `PDF Presentation Summary\n\nSlides: ${pdfDoc.getPageCount()}\nOriginal Title: ${pdfDoc.getTitle() || 'Untitled'}\nQuality: ${isPremium ? 'Premium' : 'Basic'}\n\n${qualityNote}`;
+                        const pptContent = `PDF Presentation Summary\n\nSlides: ${pdfDoc.getPageCount()}\nQuality: Premium\n\n${qualityNote}`;
                         convertedBuffer = Buffer.from(pptContent);
                         fileExtension = '.txt';
                         convertedFilename = generateFileName('converted_to_ppt').replace('.pdf', fileExtension);
                         break;
                         
                     case 'images':
-                        const imageInfo = `PDF Image Extraction Report\n\nPages processed: ${pdfDoc.getPageCount()}\nQuality: ${isPremium ? 'High-resolution with actual image extraction' : 'Basic analysis only'}\n\n${qualityNote}`;
+                        const imageInfo = `PDF Image Extraction Report\n\nPages: ${pdfDoc.getPageCount()}\nQuality: Premium with high-resolution extraction\n\n${qualityNote}`;
                         convertedBuffer = Buffer.from(imageInfo);
                         fileExtension = '.txt';
-                        convertedFilename = generateFileName('image_extraction_report').replace('.pdf', fileExtension);
-                        break;
-                        
-                    case 'text':
-                        const textContent = `Text Extraction from PDF\n\nDocument: ${pdfDoc.getTitle() || 'Untitled'}\nPages: ${pdfDoc.getPageCount()}\nQuality: ${isPremium ? 'Premium' : 'Basic'}\nExtracted: ${new Date().toLocaleString()}\n\n${qualityNote}\n\n[Extracted text would appear here]`;
-                        convertedBuffer = Buffer.from(textContent);
-                        fileExtension = '.txt';
-                        convertedFilename = generateFileName('extracted_text').replace('.pdf', fileExtension);
+                        convertedFilename = generateFileName('image_extraction').replace('.pdf', fileExtension);
                         break;
                         
                     default:
@@ -444,20 +457,26 @@ app.post('/api/process-pdf', upload.array('files', 20), async (req, res) => {
                 throw new Error('Tool not implemented');
         }
         
-        // Save the result file temporarily
+        // Update usage count (only for tools with limits)
+        if (!isPremium && config.freeLimit !== null) {
+            session.usage[tool] = currentUsage + 1;
+            userSessions.set(finalUserId, session);
+        }
+        
+        // Save result file
         const outputPath = path.join(outputDir, result.filename);
         await fs.writeFile(outputPath, result.buffer);
         
-        // Return download URL
         res.json({
             success: true,
             downloadUrl: `/api/download/${result.filename}`,
             filename: result.filename,
             fileSize: result.buffer.length,
-            isPremium: isPremium
+            userId: finalUserId,
+            remainingUses: config.freeLimit !== null ? Math.max(0, config.freeLimit - (session.usage[tool] || 0)) : null
         });
         
-        // Clean up file after 1 hour
+        // Clean up after 1 hour
         setTimeout(async () => {
             try {
                 await fs.unlink(outputPath);
@@ -483,24 +502,14 @@ app.get('/api/download/:filename', async (req, res) => {
         
         await fs.access(filePath);
         
-        const isImage = filename.endsWith('.png') || filename.endsWith('.jpg') || filename.endsWith('.jpeg');
-        const isJson = filename.endsWith('.json');
+        const isZip = filename.endsWith('.zip');
         const isText = filename.endsWith('.txt');
         const isCsv = filename.endsWith('.csv');
-        const isZip = filename.endsWith('.zip');
         
         let contentType = 'application/pdf';
-        if (isImage) {
-            contentType = `image/${path.extname(filename).slice(1)}`;
-        } else if (isJson) {
-            contentType = 'application/json';
-        } else if (isText) {
-            contentType = 'text/plain';
-        } else if (isCsv) {
-            contentType = 'text/csv';
-        } else if (isZip) {
-            contentType = 'application/zip';
-        }
+        if (isText) contentType = 'text/plain';
+        if (isCsv) contentType = 'text/csv';
+        if (isZip) contentType = 'application/zip';
         
         res.setHeader('Content-Type', contentType);
         res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
@@ -514,43 +523,114 @@ app.get('/api/download/:filename', async (req, res) => {
     }
 });
 
-// PayPal payment verification endpoint
-app.post('/api/verify-payment', async (req, res) => {
+// Create PayPal order endpoint
+app.post('/api/create-paypal-order', async (req, res) => {
     try {
-        const { paymentId, payerId, amount } = req.body;
+        const userId = req.headers['x-user-id'];
+        const { userId: finalUserId, session } = getUserSession(userId);
         
-        if (amount === '2.00') {
-            const token = generatePremiumToken();
-            
-            res.json({
-                success: true,
-                premiumToken: token,
-                expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
-            });
-        } else {
-            res.status(400).json({ error: 'Invalid payment amount' });
-        }
+        // Generate order ID (in production, integrate with PayPal SDK)
+        const orderId = `ORDER_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        
+        // Store payment info
+        activePayments.set(orderId, {
+            userId: finalUserId,
+            amount: '2.00',
+            status: 'pending',
+            createdAt: new Date()
+        });
+        
+        res.json({
+            orderId,
+            userId: finalUserId
+        });
         
     } catch (error) {
-        console.error('Payment verification error:', error);
-        res.status(500).json({ error: 'Payment verification failed' });
+        console.error('PayPal order creation error:', error);
+        res.status(500).json({ error: 'Failed to create PayPal order' });
     }
 });
 
-function generatePremiumToken() {
-    return `premium_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-}
+// Capture PayPal payment endpoint
+app.post('/api/capture-paypal-payment', async (req, res) => {
+    try {
+        const { orderId } = req.body;
+        const userId = req.headers['x-user-id'];
+        
+        const payment = activePayments.get(orderId);
+        if (!payment || payment.userId !== userId) {
+            return res.status(404).json({ error: 'Payment not found' });
+        }
+        
+        // In production, verify payment with PayPal API
+        // For demo purposes, we'll simulate successful payment
+        
+        const { session } = getUserSession(userId);
+        const premiumExpiry = new Date();
+        premiumExpiry.setHours(premiumExpiry.getHours() + 24);
+        
+        session.premiumUntil = premiumExpiry;
+        userSessions.set(userId, session);
+        
+        // Mark payment as completed
+        payment.status = 'completed';
+        activePayments.set(orderId, payment);
+        
+        res.json({
+            success: true,
+            premiumUntil: premiumExpiry.toISOString(),
+            message: 'Payment successful! You now have 24-hour premium access.'
+        });
+        
+    } catch (error) {
+        console.error('Payment capture error:', error);
+        res.status(500).json({ error: 'Payment capture failed' });
+    }
+});
 
-// Health check endpoint
+// Premium code activation endpoint
+app.post('/api/activate-premium-code', async (req, res) => {
+    try {
+        const { code } = req.body;
+        const userId = req.headers['x-user-id'];
+        const { userId: finalUserId, session } = getUserSession(userId);
+        
+        const validCodes = ['PREMIUM24H', 'TESTCODE123', 'LAUNCH2024', 'DEMO2024'];
+        
+        if (validCodes.includes(code.toUpperCase())) {
+            const premiumExpiry = new Date();
+            premiumExpiry.setHours(premiumExpiry.getHours() + 24);
+            
+            session.premiumUntil = premiumExpiry;
+            userSessions.set(finalUserId, session);
+            
+            res.json({
+                success: true,
+                premiumUntil: premiumExpiry.toISOString(),
+                userId: finalUserId,
+                message: 'Premium code activated successfully!'
+            });
+        } else {
+            res.status(400).json({ error: 'Invalid premium code' });
+        }
+        
+    } catch (error) {
+        console.error('Code activation error:', error);
+        res.status(500).json({ error: 'Code activation failed' });
+    }
+});
+
+// Health check
 app.get('/api/health', (req, res) => {
     res.json({ 
         status: 'OK', 
         timestamp: new Date().toISOString(),
-        uptime: process.uptime()
+        uptime: process.uptime(),
+        activeSessions: userSessions.size
     });
 });
 
-// Error handling middleware
+// Error handling
 app.use((error, req, res, next) => {
     console.error('Error:', error);
     
@@ -566,41 +646,27 @@ app.use((error, req, res, next) => {
     res.status(500).json({ error: 'Internal server error' });
 });
 
-// 404 handler
-app.use((req, res) => {
-    res.status(404).json({ error: 'Endpoint not found' });
-});
-
-// Cleanup old files on startup
-async function cleanupOldFiles() {
-    try {
-        await fs.mkdir(outputDir, { recursive: true });
-        
-        const files = await fs.readdir(outputDir);
-        const now = Date.now();
-        
-        for (const file of files) {
-            const filePath = path.join(outputDir, file);
-            const stats = await fs.stat(filePath);
-            
-            if (now - stats.mtime.getTime() > 2 * 60 * 60 * 1000) {
-                await fs.unlink(filePath);
-                console.log(`Cleaned up old file: ${file}`);
-            }
+// Cleanup old sessions periodically
+setInterval(() => {
+    const now = new Date();
+    for (const [userId, session] of userSessions.entries()) {
+        // Remove sessions older than 7 days
+        if (now - session.createdAt > 7 * 24 * 60 * 60 * 1000) {
+            userSessions.delete(userId);
         }
-    } catch (error) {
-        console.log('Cleanup note:', error.message);
     }
-}
+    
+    // Clean up old payments
+    for (const [orderId, payment] of activePayments.entries()) {
+        if (now - payment.createdAt > 24 * 60 * 60 * 1000) {
+            activePayments.delete(orderId);
+        }
+    }
+}, 60 * 60 * 1000); // Run every hour
 
-setInterval(cleanupOldFiles, 60 * 60 * 1000);
-
-// Start server
 app.listen(PORT, () => {
     console.log(`PDF Tools Backend running on port ${PORT}`);
-    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-    
-    cleanupOldFiles();
+    console.log('Tool configurations:', toolConfigs);
 });
 
 module.exports = app;
