@@ -155,71 +155,87 @@ async function mergePDFs(files) {
 }
 
 async function splitPDF(file, options = {}) {
-    const pdfDoc = await PDFDocument.load(file.buffer);
-    const totalPages = pdfDoc.getPageCount();
-    const { splitMethod, pageRanges, numberOfParts } = options;
-    
-    if (splitMethod === 'page_ranges' && pageRanges) {
-        const ranges = parsePageRanges(pageRanges, totalPages);
-        const results = [];
+    try {
+        const pdfDoc = await PDFDocument.load(file.buffer);
+        const totalPages = pdfDoc.getPageCount();
+        const { splitMethod, pageRanges, numberOfParts } = options;
         
-        for (let i = 0; i < ranges.length; i++) {
-            const range = ranges[i];
-            const newPdf = await PDFDocument.create();
-            const pages = await newPdf.copyPages(pdfDoc, range);
-            pages.forEach(page => newPdf.addPage(page));
+        console.log('Split options:', { splitMethod, pageRanges, numberOfParts, totalPages });
+        
+        if (splitMethod === 'page_ranges' && pageRanges) {
+            const ranges = parsePageRanges(pageRanges, totalPages);
+            const results = [];
             
-            const rangeStr = range.length === 1 ? `page_${range[0] + 1}` : `pages_${range[0] + 1}-${range[range.length - 1] + 1}`;
-            results.push({
-                buffer: await newPdf.save(),
-                filename: `${rangeStr}.pdf`
-            });
-        }
-        
-        return results;
-    } else if (splitMethod === 'equal_parts' && numberOfParts) {
-        const parts = parseInt(numberOfParts);
-        const pagesPerPart = Math.ceil(totalPages / parts);
-        const results = [];
-        
-        for (let i = 0; i < parts; i++) {
-            const startPage = i * pagesPerPart;
-            const endPage = Math.min(startPage + pagesPerPart - 1, totalPages - 1);
-            
-            if (startPage <= endPage) {
+            for (let i = 0; i < ranges.length; i++) {
+                const range = ranges[i];
                 const newPdf = await PDFDocument.create();
-                const pageIndices = [];
-                for (let j = startPage; j <= endPage; j++) {
-                    pageIndices.push(j);
-                }
-                
-                const pages = await newPdf.copyPages(pdfDoc, pageIndices);
+                const pages = await newPdf.copyPages(pdfDoc, range);
                 pages.forEach(page => newPdf.addPage(page));
                 
+                const pdfBytes = await newPdf.save();
+                const rangeStr = range.length === 1 ? `page_${range[0] + 1}` : `pages_${range[0] + 1}-${range[range.length - 1] + 1}`;
+                
                 results.push({
-                    buffer: await newPdf.save(),
-                    filename: `part_${i + 1}_pages_${startPage + 1}-${endPage + 1}.pdf`
+                    buffer: Buffer.from(pdfBytes),
+                    filename: `${rangeStr}.pdf`
                 });
             }
-        }
-        
-        return results;
-    } else {
-        // Default: Split into individual pages
-        const results = [];
-        
-        for (let i = 0; i < totalPages; i++) {
-            const newPdf = await PDFDocument.create();
-            const [page] = await newPdf.copyPages(pdfDoc, [i]);
-            newPdf.addPage(page);
             
-            results.push({
-                buffer: await newPdf.save(),
-                filename: `page_${i + 1}.pdf`
-            });
+            console.log(`Split by ranges completed: ${results.length} files`);
+            return results;
+            
+        } else if (splitMethod === 'equal_parts' && numberOfParts) {
+            const parts = parseInt(numberOfParts);
+            const pagesPerPart = Math.ceil(totalPages / parts);
+            const results = [];
+            
+            for (let i = 0; i < parts; i++) {
+                const startPage = i * pagesPerPart;
+                const endPage = Math.min(startPage + pagesPerPart - 1, totalPages - 1);
+                
+                if (startPage <= endPage) {
+                    const newPdf = await PDFDocument.create();
+                    const pageIndices = [];
+                    for (let j = startPage; j <= endPage; j++) {
+                        pageIndices.push(j);
+                    }
+                    
+                    const pages = await newPdf.copyPages(pdfDoc, pageIndices);
+                    pages.forEach(page => newPdf.addPage(page));
+                    
+                    const pdfBytes = await newPdf.save();
+                    results.push({
+                        buffer: Buffer.from(pdfBytes),
+                        filename: `part_${i + 1}_pages_${startPage + 1}-${endPage + 1}.pdf`
+                    });
+                }
+            }
+            
+            console.log(`Split into equal parts completed: ${results.length} files`);
+            return results;
+            
+        } else {
+            // Default: Split into individual pages
+            const results = [];
+            
+            for (let i = 0; i < totalPages; i++) {
+                const newPdf = await PDFDocument.create();
+                const [page] = await newPdf.copyPages(pdfDoc, [i]);
+                newPdf.addPage(page);
+                
+                const pdfBytes = await newPdf.save();
+                results.push({
+                    buffer: Buffer.from(pdfBytes),
+                    filename: `page_${i + 1}.pdf`
+                });
+            }
+            
+            console.log(`Split into individual pages completed: ${results.length} files`);
+            return results;
         }
-        
-        return results;
+    } catch (error) {
+        console.error('Error in splitPDF:', error);
+        throw new Error(`PDF split failed: ${error.message}`);
     }
 }
 
@@ -314,20 +330,36 @@ app.post('/api/process-pdf', upload.array('files', 20), async (req, res) => {
             tool,
             userId: finalUserId,
             fileCount: files ? files.length : 0,
-            convertTo
+            convertTo,
+            hasFiles: !!files,
+            bodyKeys: Object.keys(req.body)
         });
         
         if (!files || files.length === 0) {
+            console.error('No files uploaded');
             return res.status(400).json({ error: 'No files uploaded' });
         }
         
         if (!tool) {
+            console.error('No tool specified');
             return res.status(400).json({ error: 'No tool specified' });
         }
         
         const config = toolConfigs[tool];
+        if (!config) {
+            console.error('Invalid tool:', tool);
+            return res.status(400).json({ error: 'Invalid tool specified' });
+        }
+        
         const isPremium = hasPremiumAccess(session);
         const currentUsage = session.usage[tool] || 0;
+        
+        console.log('Usage check:', {
+            tool,
+            currentUsage,
+            freeLimit: config.freeLimit,
+            isPremium
+        });
         
         // Check usage limits
         if (!isPremium && config.freeLimit !== null && currentUsage >= config.freeLimit) {
@@ -354,118 +386,166 @@ app.post('/api/process-pdf', upload.array('files', 20), async (req, res) => {
         let result;
         let filename;
         
-        switch (tool) {
-            case 'merge':
-                const mergedBuffer = await mergePDFs(files);
-                filename = generateFileName('merged');
-                result = { buffer: mergedBuffer, filename };
-                break;
-                
-            case 'split':
-                const splitOptions = {
-                    splitMethod: req.body.splitMethod || 'all_pages',
-                    pageRanges: req.body.pageRanges || '',
-                    numberOfParts: req.body.numberOfParts || '2'
-                };
-                
-                const splitResults = await splitPDF(files[0], splitOptions);
-                
-                if (splitResults.length === 1) {
-                    result = splitResults[0];
-                } else {
-                    const zipFilename = generateFileName('split_pages').replace('.pdf', '.zip');
-                    const zipPath = path.join(outputDir, zipFilename);
+        console.log(`Starting ${tool} processing...`);
+        
+        try {
+            switch (tool) {
+                case 'merge':
+                    console.log('Merging PDFs...');
+                    const mergedBuffer = await mergePDFs(files);
+                    filename = generateFileName('merged');
+                    result = { buffer: mergedBuffer, filename };
+                    console.log('Merge completed, buffer size:', mergedBuffer.length);
+                    break;
                     
-                    await createZipFile(splitResults, zipPath);
-                    
-                    result = {
-                        buffer: await fs.readFile(zipPath),
-                        filename: zipFilename,
-                        isZip: true
+                case 'split':
+                    console.log('Splitting PDF...');
+                    const splitOptions = {
+                        splitMethod: req.body.splitMethod || 'all_pages',
+                        pageRanges: req.body.pageRanges || '',
+                        numberOfParts: req.body.numberOfParts || '2'
                     };
-                }
-                break;
-                
-            case 'compress':
-                const compressedBuffer = await compressPDF(files[0], isPremium);
-                filename = generateFileName('compressed');
-                result = { buffer: compressedBuffer, filename };
-                break;
-                
-            case 'repair':
-                const repairedBuffer = await repairPDF(files[0], isPremium);
-                filename = generateFileName('repaired');
-                result = { buffer: repairedBuffer, filename };
-                break;
-                
-            case 'convert':
-                const pdfDoc = await PDFDocument.load(files[0].buffer);
-                let convertedBuffer, convertedFilename, fileExtension;
-                const qualityNote = isPremium ? 'High-quality premium conversion' : 'Basic conversion';
-                
-                switch (convertTo) {
-                    case 'word':
-                        const pageCount = pdfDoc.getPageCount();
-                        const wordContent = `${pdfDoc.getTitle() || 'Converted Document'}\n\nPages: ${pageCount}\nConversion: PDF to Word\nQuality: ${isPremium ? 'Premium' : 'Basic'}\n\n${qualityNote}\n\n[Document content would appear here]`;
-                        convertedBuffer = Buffer.from(wordContent);
-                        fileExtension = '.txt';
-                        convertedFilename = generateFileName('converted_to_word').replace('.pdf', fileExtension);
-                        break;
+                    
+                    console.log('Split options:', splitOptions);
+                    const splitResults = await splitPDF(files[0], splitOptions);
+                    
+                    if (splitResults.length === 1) {
+                        result = splitResults[0];
+                    } else {
+                        const zipFilename = generateFileName('split_pages').replace('.pdf', '.zip');
+                        const zipPath = path.join(outputDir, zipFilename);
                         
-                    case 'excel':
-                        const excelContent = `PDF Analysis Report\nPages,${pdfDoc.getPageCount()}\nTitle,${pdfDoc.getTitle() || 'Untitled'}\nQuality,${isPremium ? 'Premium' : 'Basic'}`;
-                        convertedBuffer = Buffer.from(excelContent);
-                        fileExtension = '.csv';
-                        convertedFilename = generateFileName('converted_to_excel').replace('.pdf', fileExtension);
-                        break;
+                        console.log('Creating zip file:', zipPath);
+                        await createZipFile(splitResults, zipPath);
                         
-                    case 'text':
-                        const textContent = `Text Extraction from PDF\n\nDocument: ${pdfDoc.getTitle() || 'Untitled'}\nPages: ${pdfDoc.getPageCount()}\nQuality: ${isPremium ? 'Premium' : 'Basic'}\n\n${qualityNote}\n\n[Extracted text would appear here]`;
-                        convertedBuffer = Buffer.from(textContent);
-                        fileExtension = '.txt';
-                        convertedFilename = generateFileName('extracted_text').replace('.pdf', fileExtension);
-                        break;
-                        
-                    case 'powerpoint':
-                        const pptContent = `PDF Presentation Summary\n\nSlides: ${pdfDoc.getPageCount()}\nQuality: Premium\n\n${qualityNote}`;
-                        convertedBuffer = Buffer.from(pptContent);
-                        fileExtension = '.txt';
-                        convertedFilename = generateFileName('converted_to_ppt').replace('.pdf', fileExtension);
-                        break;
-                        
-                    case 'images':
-                        const imageInfo = `PDF Image Extraction Report\n\nPages: ${pdfDoc.getPageCount()}\nQuality: Premium with high-resolution extraction\n\n${qualityNote}`;
-                        convertedBuffer = Buffer.from(imageInfo);
-                        fileExtension = '.txt';
-                        convertedFilename = generateFileName('image_extraction').replace('.pdf', fileExtension);
-                        break;
-                        
-                    default:
-                        throw new Error('Unsupported conversion format');
-                }
-                
-                result = { buffer: convertedBuffer, filename: convertedFilename };
-                break;
-                
-            case 'edit':
-                const editedBuffer = await editPDF(files[0], req.body.edits || {});
-                filename = generateFileName('edited');
-                result = { buffer: editedBuffer, filename };
-                break;
-                
-            default:
-                throw new Error('Tool not implemented');
+                        result = {
+                            buffer: await fs.readFile(zipPath),
+                            filename: zipFilename,
+                            isZip: true
+                        };
+                    }
+                    console.log('Split completed');
+                    break;
+                    
+                case 'compress':
+                    console.log('Compressing PDF...');
+                    const compressedBuffer = await compressPDF(files[0], isPremium);
+                    filename = generateFileName('compressed');
+                    result = { buffer: compressedBuffer, filename };
+                    console.log('Compress completed, buffer size:', compressedBuffer.length);
+                    break;
+                    
+                case 'repair':
+                    console.log('Repairing PDF...');
+                    const repairedBuffer = await repairPDF(files[0], isPremium);
+                    filename = generateFileName('repaired');
+                    result = { buffer: repairedBuffer, filename };
+                    console.log('Repair completed');
+                    break;
+                    
+                case 'convert':
+                    console.log('Converting PDF to:', convertTo);
+                    
+                    if (!convertTo) {
+                        throw new Error('No conversion format specified');
+                    }
+                    
+                    let pdfDoc;
+                    try {
+                        pdfDoc = await PDFDocument.load(files[0].buffer);
+                        console.log('PDF loaded successfully, pages:', pdfDoc.getPageCount());
+                    } catch (loadError) {
+                        console.error('Failed to load PDF:', loadError.message);
+                        throw new Error('Invalid or corrupted PDF file');
+                    }
+                    
+                    let convertedBuffer, convertedFilename, fileExtension;
+                    const qualityNote = isPremium ? 'High-quality premium conversion' : 'Basic conversion';
+                    
+                    switch (convertTo) {
+                        case 'word':
+                            const pageCount = pdfDoc.getPageCount();
+                            const wordContent = `${pdfDoc.getTitle() || 'Converted Document'}\n\nPages: ${pageCount}\nConversion: PDF to Word\nQuality: ${isPremium ? 'Premium' : 'Basic'}\n\n${qualityNote}\n\n[Document content would appear here]`;
+                            convertedBuffer = Buffer.from(wordContent);
+                            fileExtension = '.txt';
+                            convertedFilename = generateFileName('converted_to_word').replace('.pdf', fileExtension);
+                            break;
+                            
+                        case 'excel':
+                            const excelContent = `PDF Analysis Report\nPages,${pdfDoc.getPageCount()}\nTitle,${pdfDoc.getTitle() || 'Untitled'}\nQuality,${isPremium ? 'Premium' : 'Basic'}`;
+                            convertedBuffer = Buffer.from(excelContent);
+                            fileExtension = '.csv';
+                            convertedFilename = generateFileName('converted_to_excel').replace('.pdf', fileExtension);
+                            break;
+                            
+                        case 'text':
+                            const textContent = `Text Extraction from PDF\n\nDocument: ${pdfDoc.getTitle() || 'Untitled'}\nPages: ${pdfDoc.getPageCount()}\nQuality: ${isPremium ? 'Premium' : 'Basic'}\n\n${qualityNote}\n\n[Extracted text would appear here]`;
+                            convertedBuffer = Buffer.from(textContent);
+                            fileExtension = '.txt';
+                            convertedFilename = generateFileName('extracted_text').replace('.pdf', fileExtension);
+                            break;
+                            
+                        case 'powerpoint':
+                            const pptContent = `PDF Presentation Summary\n\nSlides: ${pdfDoc.getPageCount()}\nQuality: Premium\n\n${qualityNote}`;
+                            convertedBuffer = Buffer.from(pptContent);
+                            fileExtension = '.txt';
+                            convertedFilename = generateFileName('converted_to_ppt').replace('.pdf', fileExtension);
+                            break;
+                            
+                        case 'images':
+                            const imageInfo = `PDF Image Extraction Report\n\nPages: ${pdfDoc.getPageCount()}\nQuality: Premium with high-resolution extraction\n\n${qualityNote}`;
+                            convertedBuffer = Buffer.from(imageInfo);
+                            fileExtension = '.txt';
+                            convertedFilename = generateFileName('image_extraction').replace('.pdf', fileExtension);
+                            break;
+                            
+                        default:
+                            throw new Error(`Unsupported conversion format: ${convertTo}`);
+                    }
+                    
+                    result = { buffer: convertedBuffer, filename: convertedFilename };
+                    console.log('Convert completed, format:', convertTo);
+                    break;
+                    
+                case 'edit':
+                    console.log('Editing PDF...');
+                    const editedBuffer = await editPDF(files[0], req.body.edits || {});
+                    filename = generateFileName('edited');
+                    result = { buffer: editedBuffer, filename };
+                    console.log('Edit completed');
+                    break;
+                    
+                default:
+                    throw new Error(`Tool not implemented: ${tool}`);
+            }
+            
+        } catch (processingError) {
+            console.error(`Error during ${tool} processing:`, processingError);
+            throw processingError;
+        }
+        
+        if (!result || !result.buffer) {
+            throw new Error('Processing failed - no result generated');
         }
         
         // Update usage count (only for tools with limits)
         if (!isPremium && config.freeLimit !== null) {
             session.usage[tool] = currentUsage + 1;
             userSessions.set(finalUserId, session);
+            console.log(`Updated usage for ${tool}:`, session.usage[tool]);
         }
         
         // Save result file
         const outputPath = path.join(outputDir, result.filename);
-        await fs.writeFile(outputPath, result.buffer);
+        console.log('Saving file to:', outputPath);
+        
+        try {
+            await fs.writeFile(outputPath, result.buffer);
+            console.log('File saved successfully, size:', result.buffer.length);
+        } catch (saveError) {
+            console.error('Error saving file:', saveError);
+            throw new Error('Failed to save processed file');
+        }
         
         res.json({
             success: true,
@@ -480,16 +560,24 @@ app.post('/api/process-pdf', upload.array('files', 20), async (req, res) => {
         setTimeout(async () => {
             try {
                 await fs.unlink(outputPath);
+                console.log('Cleaned up file:', result.filename);
             } catch (error) {
                 console.error('Error cleaning up file:', error);
             }
         }, 3600000);
         
     } catch (error) {
-        console.error('Processing error:', error);
+        console.error('Processing error details:', {
+            message: error.message,
+            stack: error.stack,
+            tool: req.body.tool,
+            fileCount: req.files ? req.files.length : 0
+        });
+        
         res.status(500).json({ 
             error: 'Processing failed', 
-            details: error.message 
+            details: error.message,
+            tool: req.body.tool
         });
     }
 });
