@@ -1,4 +1,1099 @@
-<!DOCTYPE html>
+<script>
+        // Backend URL configuration
+        const BACKEND_URL = window.location.hostname === 'localhost' 
+            ? 'http://localhost:3001' 
+            : 'https://pdf-tools-3r9n.onrender.com';
+        
+        let currentTool = '';
+        let selectedFiles = [];
+        let userId = localStorage.getItem('userId');
+        let userStatus = null;
+        let paypalOrderId = null;
+
+        // Tool configurations with updated freemium limits
+        const toolConfigs = {
+            merge: { title: 'Merge PDFs Online', freeLimit: null, requiresPremium: false },
+            compress: { title: 'Compress PDF Online', freeLimit: null, requiresPremium: false },
+            split: { title: 'Split PDF Online', freeLimit: 5, requiresPremium: false },
+            edit: { title: 'Edit PDF Online', freeLimit: 2, requiresPremium: false },
+            repair: { title: 'Repair PDF Online', freeLimit: 2, requiresPremium: false },
+            convert: { title: 'Convert PDF Online', freeLimit: null, requiresPremium: false }
+        };
+
+        // Initialize PayPal when modal opens
+        function initPayPal() {
+            if (document.querySelector('#paypal-button-container').innerHTML) {
+                return; // Already initialized
+            }
+
+            paypal.Buttons({
+                createOrder: function(data, actions) {
+                    return actions.order.create({
+                        purchase_units: [{
+                            amount: {
+                                value: '2.00',
+                                currency_code: 'USD'
+                            },
+                            description: 'PDF Tools Premium Access - 24 Hours Unlimited'
+                        }]
+                    });
+                },
+                
+                onApprove: async function(data, actions) {
+                    // Show loading state
+                    const paypalContainer = document.getElementById('paypal-button-container');
+                    const originalContent = paypalContainer.innerHTML;
+                    paypalContainer.innerHTML = `
+                        <div style="text-align: center; padding: 20px; background: #f7fafc; border-radius: 8px; border: 2px solid #e2e8f0;">
+                            <div style="display: inline-block; width: 20px; height: 20px; border: 2px solid #e53e3e; border-top-color: transparent; border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 10px;"></div>
+                            <p style="margin: 0; color: #666; font-weight: 600;">Processing your payment...</p>
+                            <p style="margin: 5px 0 0 0; color: #666; font-size: 0.9rem;">Please wait while we verify your transaction</p>
+                        </div>
+                    `;
+                    
+                    try {
+                        // Capture the payment
+                        const details = await actions.order.capture();
+                        
+                        console.log('PayPal payment captured:', details);
+                        
+                        // Send payment details to backend for verification
+                        const response = await fetch(`${BACKEND_URL}/api/capture-paypal-payment`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-User-ID': userId
+                            },
+                            body: JSON.stringify({
+                                orderId: data.orderID,
+                                payerId: data.payerID,
+                                paymentDetails: details
+                            })
+                        });
+                        
+                        const result = await response.json();
+                        
+                        if (result.success) {
+                            closePremiumModal();
+                            await loadUserStatus();
+                            
+                            // Show enhanced success message with premium code
+                            showPremiumSuccessMessage(
+                                result.message, 
+                                result.premiumCode, 
+                                result.premiumUntil
+                            );
+                            
+                            if (currentTool) {
+                                selectTool(currentTool);
+                            }
+                        } else {
+                            // Restore PayPal buttons on error
+                            paypalContainer.innerHTML = originalContent;
+                            initPayPal();
+                            
+                            console.error('Backend verification failed:', result);
+                            alert('❌ Payment verification failed. Please contact support with order ID: ' + data.orderID);
+                        }
+                    } catch (error) {
+                        // Restore PayPal buttons on error
+                        paypalContainer.innerHTML = originalContent;
+                        initPayPal();
+                        
+                        console.error('Error processing payment:', error);
+                        alert('❌ Payment processing failed. Please try again or contact support.');
+                    }
+                },
+                
+                onError: function(err) {
+                    console.error('PayPal error:', err);
+                    alert('❌ Payment failed. Please try again or contact support.');
+                },
+                
+                onCancel: function(data) {
+                    console.log('PayPal payment cancelled:', data);
+                    // Payment was cancelled, user can try again
+                },
+
+                style: {
+                    layout: 'vertical',
+                    color: 'blue',
+                    shape: 'rect',
+                    label: 'paypal',
+                    height: 50,
+                    tagline: false
+                }
+            }).render('#paypal-button-container');
+        }
+
+        // Load user status from backend
+        async function loadUserStatus() {
+            try {
+                const response = await fetch(`${BACKEND_URL}/api/user-status`, {
+                    headers: {
+                        'X-User-ID': userId
+                    }
+                });
+                
+                const status = await response.json();
+                userId = status.userId;
+                userStatus = status;
+                
+                localStorage.setItem('userId', userId);
+                
+                // Update UI
+                updatePremiumStatus(status.isPremium, status.premiumUntil);
+                updateUsageCounters(status.usage);
+                
+                console.log('User status loaded:', status);
+            } catch (error) {
+                console.error('Failed to load user status:', error);
+            }
+        }
+
+        // Update premium status in header
+        function updatePremiumStatus(isPremium, premiumUntil) {
+            const statusElement = document.getElementById('premiumStatus');
+            
+            if (isPremium) {
+                statusElement.textContent = '✨ Premium Active';
+                statusElement.className = 'premium-status';
+                
+                if (premiumUntil) {
+                    const expiry = new Date(premiumUntil);
+                    const timeLeft = Math.ceil((expiry - new Date()) / (1000 * 60 * 60));
+                    if (timeLeft > 0) {
+                        statusElement.textContent = `✨ Premium (${timeLeft}h left)`;
+                    }
+                }
+            } else {
+                statusElement.textContent = 'Free User';
+                statusElement.className = 'premium-status free';
+            }
+        }
+
+        // Update usage counters on tool cards
+        function updateUsageCounters(usage) {
+            Object.keys(toolConfigs).forEach(tool => {
+                const counterElement = document.getElementById(`${tool}-usage`);
+                const config = toolConfigs[tool];
+                
+                if (config.freeLimit !== null && !userStatus?.isPremium) {
+                    const used = usage[tool] || 0;
+                    const remaining = Math.max(0, config.freeLimit - used);
+                    
+                    counterElement.textContent = `${used}/${config.freeLimit} free uses`;
+                    
+                    if (remaining === 0) {
+                        counterElement.className = 'usage-counter warning';
+                        counterElement.textContent += ' - Upgrade to continue';
+                    } else if (remaining <= 1) {
+                        counterElement.className = 'usage-counter warning';
+                    } else {
+                        counterElement.className = 'usage-counter';
+                    }
+                } else if (config.freeLimit !== null && userStatus?.isPremium) {
+                    counterElement.textContent = 'Premium: Unlimited';
+                    counterElement.className = 'usage-counter';
+                } else {
+                    counterElement.textContent = 'Always Free';
+                    counterElement.className = 'usage-counter';
+                }
+            });
+        }
+
+        // Select tool
+        function selectTool(tool) {
+            currentTool = tool;
+            const config = toolConfigs[tool];
+            
+            // Check if user has exceeded free limit
+            if (!userStatus?.isPremium && config.freeLimit !== null) {
+                const used = userStatus?.usage[tool] || 0;
+                if (used >= config.freeLimit) {
+                    showPremiumModal();
+                    return;
+                }
+            }
+            
+            // Update UI
+            document.querySelectorAll('.tool-card').forEach(card => {
+                card.classList.remove('active');
+            });
+            document.getElementById(tool).classList.add('active');
+            
+            // Show active tool section
+            document.getElementById('activeToolSection').style.display = 'block';
+            document.getElementById('activeToolTitle').textContent = config.title;
+            document.getElementById('processBtn').textContent = `Process ${tool.charAt(0).toUpperCase() + tool.slice(1)}`;
+            
+            // Clear previous files and options
+            selectedFiles = [];
+            document.getElementById('fileInput').value = '';
+            document.getElementById('fileList').innerHTML = '';
+            document.getElementById('processBtn').style.display = 'none';
+            
+            // Remove existing options
+            const existingOptions = document.querySelectorAll('#convertOptions, #splitOptions');
+            existingOptions.forEach(option => option.remove());
+            
+            const uploadArea = document.querySelector('.upload-area');
+            
+            // Add convert options
+            if (tool === 'convert') {
+                const convertOptions = document.createElement('div');
+                convertOptions.id = 'convertOptions';
+                convertOptions.innerHTML = `
+                    <div style="margin: 20px 0; padding: 20px; background: #f7fafc; border-radius: 10px;">
+                        <h4 style="margin-bottom: 15px; color: #2d3748;">Choose Output Format:</h4>
+                        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                            <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; padding: 8px 12px; background: white; border: 2px solid #e2e8f0; border-radius: 6px; transition: all 0.3s;">
+                                <input type="radio" name="convertFormat" value="word" checked style="margin: 0;">
+                                <span>📄 Word (Free)</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; padding: 8px 12px; background: white; border: 2px solid #e2e8f0; border-radius: 6px; transition: all 0.3s;">
+                                <input type="radio" name="convertFormat" value="excel" style="margin: 0;">
+                                <span>📊 Excel (Free)</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; padding: 8px 12px; background: white; border: 2px solid #e2e8f0; border-radius: 6px; transition: all 0.3s;">
+                                <input type="radio" name="convertFormat" value="text" style="margin: 0;">
+                                <span>📄 Text (Free)</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; padding: 8px 12px; background: white; border: 2px solid #e2e8f0; border-radius: 6px; transition: all 0.3s; ${!userStatus?.isPremium ? 'opacity: 0.6;' : ''}">
+                                <input type="radio" name="convertFormat" value="powerpoint" ${!userStatus?.isPremium ? 'disabled' : ''} style="margin: 0;">
+                                <span>📺 PowerPoint ${!userStatus?.isPremium ? '(Premium)' : ''}</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; padding: 8px 12px; background: white; border: 2px solid #e2e8f0; border-radius: 6px; transition: all 0.3s; ${!userStatus?.isPremium ? 'opacity: 0.6;' : ''}">
+                                <input type="radio" name="convertFormat" value="images" ${!userStatus?.isPremium ? 'disabled' : ''} style="margin: 0;">
+                                <span>🖼️ Images ${!userStatus?.isPremium ? '(Premium)' : ''}</span>
+                            </label>
+                        </div>
+                        <div style="margin-top: 15px; padding: 12px; background: #fff8dc; border-radius: 6px; border-left: 4px solid #f6ad55;">
+                            <strong>Free vs Premium:</strong><br>
+                            • Free: Word, Excel, and Text conversion<br>
+                            • Premium: All formats with advanced OCR and formatting
+                        </div>
+                    </div>
+                `;
+                
+                uploadArea.parentNode.insertBefore(convertOptions, uploadArea.nextSibling);
+                addConvertEventListeners(convertOptions);
+            }
+            
+            // Add split options (basic for free users)
+            if (tool === 'split') {
+                const splitOptions = document.createElement('div');
+                splitOptions.id = 'splitOptions';
+                splitOptions.innerHTML = `
+                    <div style="margin: 20px 0; padding: 20px; background: #f7fafc; border-radius: 10px;">
+                        <h4 style="margin-bottom: 15px; color: #2d3748;">Choose Split Method:</h4>
+                        <div style="margin-bottom: 20px;">
+                            <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; cursor: pointer;">
+                                <input type="radio" name="splitMethod" value="all_pages" checked>
+                                <span>Split into individual pages (1 page per file)</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; cursor: pointer;" ${!userStatus?.isPremium ? 'style="opacity: 0.6;"' : ''}>
+                                <input type="radio" name="splitMethod" value="page_ranges" ${!userStatus?.isPremium ? 'disabled' : ''}>
+                                <span>Split by page ranges (specify custom ranges) ${!userStatus?.isPremium ? '- Premium' : ''}</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; cursor: pointer;" ${!userStatus?.isPremium ? 'style="opacity: 0.6;"' : ''}>
+                                <input type="radio" name="splitMethod" value="equal_parts" ${!userStatus?.isPremium ? 'disabled' : ''}>
+                                <span>Split into equal parts ${!userStatus?.isPremium ? '- Premium' : ''}</span>
+                            </label>
+                        </div>
+                        
+                        <div id="splitCustomOptions" style="display: none; margin-top: 15px;">
+                            <div id="pageRangesInput" style="display: none;">
+                                <label style="display: block; margin-bottom: 8px; font-weight: 500;">Page Ranges (e.g., 1-3, 5-7, 10):</label>
+                                <input type="text" id="pageRanges" placeholder="1-3, 5-7, 10" style="
+                                    width: 100%;
+                                    padding: 10px;
+                                    border: 1px solid #e2e8f0;
+                                    border-radius: 6px;
+                                    font-size: 0.9rem;
+                                " />
+                            </div>
+                            
+                            <div id="equalPartsInput" style="display: none;">
+                                <label style="display: block; margin-bottom: 8px; font-weight: 500;">Number of Parts:</label>
+                                <input type="number" id="numberOfParts" min="2" max="50" value="2" style="
+                                    width: 100px;
+                                    padding: 10px;
+                                    border: 1px solid #e2e8f0;
+                                    border-radius: 6px;
+                                    font-size: 0.9rem;
+                                " />
+                            </div>
+                        </div>
+                        
+                        <div style="margin-top: 15px; padding: 12px; background: #fff8dc; border-radius: 6px; border-left: 4px solid #f6ad55;">
+                            <strong>Split Options:</strong><br>
+                            • Free: Split into individual pages<br>
+                            • Premium: Custom page ranges and equal parts
+                        </div>
+                    </div>
+                `;
+                
+                uploadArea.parentNode.insertBefore(splitOptions, uploadArea.nextSibling);
+                addSplitEventListeners(splitOptions);
+            }
+            
+            // Scroll to active tool section
+            document.getElementById('activeToolSection').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        // Event listeners for convert options
+        function addConvertEventListeners(convertOptions) {
+            const labels = convertOptions.querySelectorAll('label');
+            labels.forEach(label => {
+                label.addEventListener('mouseenter', () => {
+                    label.style.borderColor = '#e53e3e';
+                    label.style.backgroundColor = '#fed7d7';
+                });
+                label.addEventListener('mouseleave', () => {
+                    if (!label.querySelector('input').checked) {
+                        label.style.borderColor = '#e2e8f0';
+                        label.style.backgroundColor = 'white';
+                    }
+                });
+                
+                const input = label.querySelector('input');
+                input.addEventListener('change', () => {
+                    if (input.disabled && !userStatus?.isPremium) {
+                        input.checked = false;
+                        document.querySelector('input[name="convertFormat"][value="word"]').checked = true;
+                        showPremiumModal();
+                        return;
+                    }
+                    
+                    labels.forEach(l => {
+                        l.style.borderColor = '#e2e8f0';
+                        l.style.backgroundColor = 'white';
+                    });
+                    if (input.checked) {
+                        label.style.borderColor = '#e53e3e';
+                        label.style.backgroundColor = '#fed7d7';
+                    }
+                });
+            });
+        }
+
+        // Event listeners for split options
+        function addSplitEventListeners(splitOptions) {
+            const splitMethodRadios = splitOptions.querySelectorAll('input[name="splitMethod"]');
+            const customOptions = splitOptions.querySelector('#splitCustomOptions');
+            const pageRangesInput = splitOptions.querySelector('#pageRangesInput');
+            const equalPartsInput = splitOptions.querySelector('#equalPartsInput');
+            
+            splitMethodRadios.forEach(radio => {
+                radio.addEventListener('change', () => {
+                    if (radio.disabled && !userStatus?.isPremium) {
+                        radio.checked = false;
+                        document.querySelector('input[name="splitMethod"][value="all_pages"]').checked = true;
+                        showPremiumModal();
+                        return;
+                    }
+                    
+                    if (radio.value === 'all_pages') {
+                        customOptions.style.display = 'none';
+                    } else {
+                        customOptions.style.display = 'block';
+                        if (radio.value === 'page_ranges') {
+                            pageRangesInput.style.display = 'block';
+                            equalPartsInput.style.display = 'none';
+                        } else if (radio.value === 'equal_parts') {
+                            pageRangesInput.style.display = 'none';
+                            equalPartsInput.style.display = 'block';
+                        }
+                    }
+                });
+            });
+        }
+
+        // File input handler
+        document.getElementById('fileInput').addEventListener('change', handleFileSelect);
+
+        function handleFileSelect(event) {
+            const files = Array.from(event.target.files);
+            selectedFiles = files;
+            displayFiles();
+        }
+
+        // Display selected files
+        function displayFiles() {
+            const fileList = document.getElementById('fileList');
+            fileList.innerHTML = '';
+            
+            selectedFiles.forEach((file, index) => {
+                const fileItem = document.createElement('div');
+                fileItem.className = 'file-item';
+                fileItem.innerHTML = `
+                    <div class="file-info">
+                        <span>📄</span>
+                        <span>${file.name}</span>
+                        <span style="color: #666; font-size: 0.9rem;">(${(file.size / 1024 / 1024).toFixed(2)} MB)</span>
+                    </div>
+                    <button class="remove-file" onclick="removeFile(${index})">Remove</button>
+                `;
+                fileList.appendChild(fileItem);
+            });
+            
+            document.getElementById('processBtn').style.display = selectedFiles.length > 0 ? 'block' : 'none';
+        }
+
+        // Remove file
+        function removeFile(index) {
+            selectedFiles.splice(index, 1);
+            displayFiles();
+        }
+
+        // Process files
+        async function processFiles() {
+            if (selectedFiles.length === 0) return;
+            
+            const config = toolConfigs[currentTool];
+            
+            // Check usage limits for non-premium users
+            if (!userStatus?.isPremium && config.freeLimit !== null) {
+                const currentUsage = userStatus.usage[currentTool] || 0;
+                if (currentUsage >= config.freeLimit) {
+                    showPremiumModal();
+                    return;
+                }
+            }
+            
+            // Check convert format restrictions
+            if (currentTool === 'convert') {
+                const selectedFormat = document.querySelector('input[name="convertFormat"]:checked');
+                const premiumFormats = ['powerpoint', 'images'];
+                
+                if (!userStatus?.isPremium && selectedFormat && premiumFormats.includes(selectedFormat.value)) {
+                    showPremiumModal();
+                    return;
+                }
+            }
+            
+            document.getElementById('processing').style.display = 'block';
+            document.getElementById('processBtn').style.display = 'none';
+            
+            try {
+                const formData = new FormData();
+                selectedFiles.forEach(file => {
+                    formData.append('files', file);
+                });
+                formData.append('tool', currentTool);
+                
+                // Add split options
+                if (currentTool === 'split') {
+                    const splitMethod = document.querySelector('input[name="splitMethod"]:checked')?.value || 'all_pages';
+                    formData.append('splitMethod', splitMethod);
+                    
+                    if (splitMethod === 'page_ranges') {
+                        const pageRanges = document.getElementById('pageRanges')?.value || '';
+                        formData.append('pageRanges', pageRanges);
+                    } else if (splitMethod === 'equal_parts') {
+                        const numberOfParts = document.getElementById('numberOfParts')?.value || '2';
+                        formData.append('numberOfParts', numberOfParts);
+                    }
+                }
+                
+                // Add conversion format for convert tool
+                if (currentTool === 'convert') {
+                    const selectedFormat = document.querySelector('input[name="convertFormat"]:checked');
+                    if (selectedFormat) {
+                        formData.append('convertTo', selectedFormat.value);
+                    }
+                }
+                
+                const response = await fetch(`${BACKEND_URL}/api/process-pdf`, {
+                    method: 'POST',
+                    headers: {
+                        'X-User-ID': userId
+                    },
+                    body: formData,
+                });
+                
+                if (!response.ok) {
+                    const errorData = await response.json().catch(async () => {
+                        const text = await response.text().catch(() => 'No error details available');
+                        return { error: `HTTP ${response.status}: ${text}` };
+                    });
+                    throw new Error(errorData.error || `Server error: ${response.status}`);
+                }
+                
+                const result = await response.json();
+                
+                if (result.success && result.downloadUrl) {
+                    // Update user status
+                    await loadUserStatus();
+                    
+                    // Create download link
+                    const link = document.createElement('a');
+                    link.href = `${BACKEND_URL}${result.downloadUrl}`;
+                    link.download = result.filename || 'processed.pdf';
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    
+                    let successMessage = '✅ File processed successfully!';
+                    if (result.remainingUses !== null) {
+                        successMessage += ` You have ${result.remainingUses} free uses remaining for this tool.`;
+                    }
+                    
+                    alert(successMessage);
+                } else {
+                    throw new Error('Processing failed - no download URL received');
+                }
+                
+            } catch (error) {
+                console.error('Processing error:', error);
+                
+                let errorMessage = 'Processing failed. ';
+                if (error.message.includes('Failed to fetch')) {
+                    errorMessage += 'Cannot connect to server. Please try again later.';
+                } else if (error.message.includes('limit reached')) {
+                    errorMessage = error.message + ' Click upgrade to continue.';
+                    setTimeout(() => showPremiumModal(), 1000);
+                } else {
+                    errorMessage += error.message;
+                }
+                
+                alert('❌ ' + errorMessage);
+            } finally {
+                document.getElementById('processing').style.display = 'none';
+                document.getElementById('processBtn').style.display = 'block';
+            }
+        }
+
+        // Enhanced success message function
+        function showPremiumSuccessMessage(message, premiumCode, premiumUntil) {
+            const expiryDate = new Date(premiumUntil).toLocaleString();
+            
+            const successHtml = `
+                <div style="
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    background: rgba(0,0,0,0.85);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    z-index: 2000;
+                    animation: fadeIn 0.3s ease;
+                " onclick="this.remove()">
+                    <div style="
+                        background: white;
+                        border-radius: 20px;
+                        padding: 40px;
+                        text-align: center;
+                        max-width: 580px;
+                        width: 90%;
+                        max-height: 90vh;
+                        overflow-y: auto;
+                        box-shadow: 0 25px 50px rgba(0,0,0,0.3);
+                        animation: slideIn 0.4s ease;
+                        position: relative;
+                    " onclick="event.stopPropagation()">
+                        <!-- Close button -->
+                        <button onclick="this.closest('div[style*=\"position: fixed\"]').remove()" style="
+                            position: absolute;
+                            top: 15px;
+                            right: 20px;
+                            background: none;
+                            border: none;
+                            font-size: 1.5rem;
+                            cursor: pointer;
+                            color: #666;
+                            width: 30px;
+                            height: 30px;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            border-radius: 50%;
+                            transition: all 0.3s;
+                        " onmouseover="this.style.background='#f1f5f9'; this.style.color='#e53e3e'" onmouseout="this.style.background='none'; this.style.color='#666'">&times;</button>
+                        
+                        <!-- Success animation -->
+                        <div style="font-size: 5rem; margin-bottom: 20px; animation: bounce 0.8s ease;">🎉</div>
+                        <h2 style="color: #48bb78; margin-bottom: 15px; font-size: 2rem; font-weight: 700;">Payment Successful!</h2>
+                        <p style="color: #666; margin-bottom: 25px; line-height: 1.6; font-size: 1.1rem;">
+                            Your premium access is now active! Here's your premium code for future use:
+                        </p>
+                        
+                        <!-- Premium Code Display -->
+                        <div style="
+                            background: linear-gradient(135deg, #e6fffa 0%, #f0fff4 100%);
+                            border: 3px solid #48bb78;
+                            border-radius: 15px;
+                            padding: 30px;
+                            margin: 25px 0;
+                            text-align: center;
+                            position: relative;
+                            overflow: hidden;
+                        ">
+                            <!-- Background decoration -->
+                            <div style="
+                                position: absolute;
+                                top: -50%;
+                                left: -50%;
+                                width: 200%;
+                                height: 200%;
+                                background: radial-gradient(circle, rgba(72,187,120,0.05) 0%, transparent 50%);
+                                animation: rotate 20s linear infinite;
+                                pointer-events: none;
+                            "></div>
+                            
+                            <div style="position: relative; z-index: 1;">
+                                <h3 style="color: #2f855a; margin: 0 0 15px 0; font-size: 1.5rem; font-weight: 600;">
+                                    🎫 Your Premium Code
+                                </h3>
+                                <div style="
+                                    background: #2f855a;
+                                    color: white;
+                                    padding: 25px;
+                                    border-radius: 12px;
+                                    margin: 15px 0;
+                                    box-shadow: 0 4px 12px rgba(47, 133, 90, 0.3);
+                                    transition: transform 0.2s;
+                                " onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform='scale(1)'" onclick="selectCode(this)">
+                                    <div style="
+                                        font-family: 'Courier New', monospace;
+                                        font-size: 1.6rem;
+                                        font-weight: bold;
+                                        letter-spacing: 3px;
+                                        word-break: break-all;
+                                        user-select: all;
+                                        cursor: text;
+                                    ">${premiumCode}</div>
+                                </div>
+                                <p style="color: #2f855a; margin: 10px 0 0 0; font-size: 1rem; font-weight: 500;">
+                                    💡 Click the code to select • Works on any device • Save it somewhere safe!
+                                </p>
+                            </div>
+                        </div>
+                        
+                        <!-- Premium Benefits -->
+                        <div style="
+                            background: #fff8dc;
+                            border-left: 4px solid #f6ad55;
+                            padding: 25px;
+                            margin: 25px 0;
+                            text-align: left;
+                            border-radius: 8px;
+                        ">
+                            <h4 style="color: #744210; margin: 0 0 15px 0; font-size: 1.3rem; display: flex; align-items: center; gap: 8px;">
+                                ✨ Premium Benefits Active
+                            </h4>
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px;">
+                                <ul style="color: #744210; margin: 0; padding-left: 20px; line-height: 1.8;">
+                                    <li><strong>Unlimited file processing</strong></li>
+                                    <li><strong>Advanced conversion formats</strong></li>
+                                    <li><strong>Custom split options</strong></li>
+                                    <li><strong>High-quality processing</strong></li>
+                                </ul>
+                                <ul style="color: #744210; margin: 0; padding-left: 20px; line-height: 1.8;">
+                                    <li><strong>Priority support</strong></li>
+                                    <li><strong>No file size limits</strong></li>
+                                    <li><strong>No watermarks</strong></li>
+                                    <li><strong>Faster processing</strong></li>
+                                </ul>
+                            </div>
+                            <div style="margin-top: 20px; padding: 15px; background: rgba(116, 66, 16, 0.1); border-radius: 8px; text-align: center;">
+                                <p style="margin: 0; color: #744210; font-weight: 600; font-size: 1.05rem;">
+                                    ⏰ Premium Access Expires: ${expiryDate}
+                                </p>
+                            </div>
+                        </div>
+                        
+                        <!-- Code Usage Instructions -->
+                        <div style="background: #f8fafc; border-radius: 10px; padding: 20px; margin: 25px 0; text-align: left;">
+                            <h4 style="color: #2d3748; margin: 0 0 12px 0; font-size: 1.2rem;">🚀 How to Use Your Code:</h4>
+                            <ol style="color: #4a5568; margin: 0; padding-left: 20px; line-height: 1.8; font-size: 0.95rem;">
+                                <li>Your premium access is <strong>already active</strong> - start using tools now!</li>
+                                <li>Save your code somewhere safe (screenshot, notes app, etc.)</li>
+                                <li>Use the code on any device to reactivate premium access</li>
+                                <li>The code works multiple times within the 24-hour period</li>
+                                <li>Share the code with family members for their use too!</li>
+                            </ol>
+                        </div>
+                        
+                        <!-- Action buttons -->
+                        <div style="display: flex; gap: 15px; justify-content: center; margin-top: 30px; flex-wrap: wrap;">
+                            <button onclick="copyCodeToClipboard('${premiumCode}')" style="
+                                background: linear-gradient(135deg, #4299e1, #2b6cb0);
+                                color: white;
+                                border: none;
+                                padding: 14px 28px;
+                                border-radius: 10px;
+                                cursor: pointer;
+                                font-weight: 600;
+                                font-size: 1rem;
+                                display: flex;
+                                align-items: center;
+                                gap: 8px;
+                                transition: all 0.3s;
+                                box-shadow: 0 4px 12px rgba(66, 153, 225, 0.3);
+                            " onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 20px rgba(66, 153, 225, 0.4)'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 12px rgba(66, 153, 225, 0.3)'">
+                                <span>📋</span> Copy Code
+                            </button>
+                            
+                            <button onclick="this.closest('div[style*=\"position: fixed\"]').remove()" style="
+                                background: linear-gradient(135deg, #e53e3e, #c53030);
+                                color: white;
+                                border: none;
+                                padding: 14px 28px;
+                                border-radius: 10px;
+                                cursor: pointer;
+                                font-weight: 600;
+                                font-size: 1rem;
+                                display: flex;
+                                align-items: center;
+                                gap: 8px;
+                                transition: all 0.3s;
+                                box-shadow: 0 4px 12px rgba(229, 62, 62, 0.3);
+                            " onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 20px rgba(229, 62, 62, 0.4)'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 12px rgba(229, 62, 62, 0.3)'">
+                                <span>🚀</span> Start Using Premium Tools
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            document.body.insertAdjacentHTML('beforeend', successHtml);
+            
+            // Auto-remove after 45 seconds if user doesn't interact
+            setTimeout(() => {
+                const modal = document.querySelector('div[style*="position: fixed"][style*="z-index: 2000"]');
+                if (modal) modal.remove();
+            }, 45000);
+        }
+
+        // Enhanced premium code activation with better UX
+        async function activatePremiumCode() {
+            const codeInput = document.getElementById('premiumCode');
+            const button = event.target;
+            const code = codeInput.value.trim();
+            
+            if (!code) {
+                codeInput.focus();
+                codeInput.style.borderColor = '#e53e3e';
+                codeInput.placeholder = 'Please enter your premium code';
+                setTimeout(() => {
+                    codeInput.style.borderColor = '#e2e8f0';
+                    codeInput.placeholder = 'Enter your premium code';
+                }, 3000);
+                return;
+            }
+            
+            // Show loading state
+            const originalText = button.textContent;
+            button.textContent = 'Activating...';
+            button.classList.add('code-activating');
+            codeInput.disabled = true;
+            
+            try {
+                const response = await fetch(`${BACKEND_URL}/api/activate-premium-code`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-User-ID': userId
+                    },
+                    body: JSON.stringify({ code })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    closePremiumModal();
+                    await loadUserStatus();
+                    showEnhancedSuccessMessage(result.message, code, result.premiumUntil);
+                    
+                    // Clear the code input for next time
+                    codeInput.value = '';
+                    
+                    if (currentTool) {
+                        selectTool(currentTool);
+                    }
+                } else {
+                    // Show error state
+                    codeInput.style.borderColor = '#e53e3e';
+                    codeInput.style.background = '#fed7d7';
+                    
+                    // Show error message
+                    showQuickMessage('❌ ' + result.error, 'error');
+                    
+                    // Reset after 3 seconds
+                    setTimeout(() => {
+                        codeInput.style.borderColor = '#e2e8f0';
+                        codeInput.style.background = 'white';
+                    }, 3000);
+                }
+            } catch (error) {
+                console.error('Code activation error:', error);
+                showQuickMessage('❌ Code activation failed. Please try again.', 'error');
+            } finally {
+                // Reset button state
+                button.textContent = originalText;
+                button.classList.remove('code-activating');
+                codeInput.disabled = false;
+            }
+        }
+
+        // Helper function for quick messages
+        function showQuickMessage(message, type = 'info') {
+            const messageDiv = document.createElement('div');
+            messageDiv.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                background: ${type === 'error' ? '#fed7d7' : '#d4edda'};
+                color: ${type === 'error' ? '#721c24' : '#155724'};
+                border: 2px solid ${type === 'error' ? '#f5c6cb' : '#c3e6cb'};
+                border-radius: 8px;
+                padding: 15px 20px;
+                z-index: 3000;
+                font-weight: 600;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                animation: slideInRight 0.3s ease;
+                max-width: 300px;
+            `;
+            messageDiv.textContent = message;
+            document.body.appendChild(messageDiv);
+            
+            setTimeout(() => {
+                messageDiv.style.animation = 'slideOutRight 0.3s ease forwards';
+                setTimeout(() => messageDiv.remove(), 300);
+            }, 4000);
+            
+            // Add slide animations
+            if (!document.querySelector('#quick-message-styles')) {
+                const style = document.createElement('style');
+                style.id = 'quick-message-styles';
+                style.textContent = `
+                    @keyframes slideInRight {
+                        from { transform: translateX(100%); opacity: 0; }
+                        to { transform: translateX(0); opacity: 1; }
+                    }
+                    @keyframes slideOutRight {
+                        from { transform: translateX(0); opacity: 1; }
+                        to { transform: translateX(100%); opacity: 0; }
+                    }
+                `;
+                document.head.appendChild(style);
+            }
+        }
+
+        // Enhanced success message for code activation
+        function showEnhancedSuccessMessage(message, code, premiumUntil) {
+            const expiryDate = new Date(premiumUntil).toLocaleString();
+            
+            const successHtml = `
+                <div style="
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    background: rgba(0,0,0,0.8);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    z-index: 2000;
+                    animation: fadeIn 0.3s ease;
+                " onclick="this.remove()">
+                    <div style="
+                        background: white;
+                        border-radius: 15px;
+                        padding: 40px;
+                        text-align: center;
+                        max-width: 500px;
+                        margin: 20px;
+                        box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+                        animation: slideIn 0.4s ease;
+                    " onclick="event.stopPropagation()">
+                        <div style="font-size: 4rem; margin-bottom: 20px; animation: bounce 0.8s ease;">🎉</div>
+                        <h2 style="color: #48bb78; margin-bottom: 15px; font-size: 1.8rem;">Code Activated!</h2>
+                        <p style="color: #666; margin-bottom: 20px; line-height: 1.6;">${message}</p>
+                        
+                        <div style="background: #f0fff4; border: 2px solid #68d391; border-radius: 12px; padding: 20px; margin: 20px 0;">
+                            <h3 style="color: #22543d; margin-bottom: 10px;">Premium Access Active</h3>
+                            <p style="color: #22543d; margin: 0; font-size: 0.9rem;">
+                                Code: <strong style="font-family: 'Courier New', monospace; letter-spacing: 1px;">${code}</strong><br>
+                                Expires: <strong>${expiryDate}</strong>
+                            </p>
+                        </div>
+                        
+                        <button onclick="this.closest('div[style*=\"position: fixed\"]').remove()" style="
+                            background: linear-gradient(135deg, #e53e3e, #c53030);
+                            color: white;
+                            border: none;
+                            padding: 12px 24px;
+                            border-radius: 8px;
+                            cursor: pointer;
+                            font-weight: 600;
+                            font-size: 1rem;
+                            margin-top: 20px;
+                            transition: all 0.3s;
+                        " onmouseover="this.style.transform='translateY(-1px)'" onmouseout="this.style.transform='translateY(0)'">
+                            Start Using Premium Tools
+                        </button>
+                    </div>
+                </div>
+            `;
+            
+            document.body.insertAdjacentHTML('beforeend', successHtml);
+        }
+
+        // Helper function to select code text
+        function selectCode(element) {
+            const range = document.createRange();
+            range.selectNodeContents(element);
+            const selection = window.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(range);
+            
+            // Visual feedback
+            const originalBg = element.style.background;
+            element.style.background = '#38a169';
+            setTimeout(() => {
+                element.style.background = originalBg;
+            }, 200);
+        }
+
+        // Enhanced copy to clipboard with better feedback
+        function copyCodeToClipboard(code) {
+            const button = event.target;
+            const originalContent = button.innerHTML;
+            
+            navigator.clipboard.writeText(code).then(() => {
+                // Success feedback
+                button.innerHTML = '<span>✅</span> Copied!';
+                button.style.background = 'linear-gradient(135deg, #48bb78, #38a169)';
+                
+                // Show floating message
+                showFloatingMessage('Premium code copied to clipboard!', button);
+                
+                setTimeout(() => {
+                    button.innerHTML = originalContent;
+                    button.style.background = 'linear-gradient(135deg, #4299e1, #2b6cb0)';
+                }, 2500);
+            }).catch(err => {
+                console.error('Failed to copy code:', err);
+                
+                // Fallback for older browsers
+                const textArea = document.createElement('textarea');
+                textArea.value = code;
+                textArea.style.position = 'fixed';
+                textArea.style.opacity = '0';
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+                
+                // Feedback
+                button.innerHTML = '<span>✅</span> Copied!';
+                button.style.background = 'linear-gradient(135deg, #48bb78, #38a169)';
+                
+                setTimeout(() => {
+                    button.innerHTML = originalContent;
+                    button.style.background = 'linear-gradient(135deg, #4299e1, #2b6cb0)';
+                }, 2500);
+            });
+        }
+
+        // Floating message for copy action
+        function showFloatingMessage(text, anchorElement) {
+            const message = document.createElement('div');
+            const rect = anchorElement.getBoundingClientRect();
+            
+            message.style.cssText = `
+                position: fixed;
+                top: ${rect.top - 50}px;
+                left: ${rect.left + rect.width/2}px;
+                transform: translateX(-50%);
+                background: #2d3748;
+                color: white;
+                padding: 8px 16px;
+                border-radius: 20px;
+                font-size: 0.85rem;
+                font-weight: 600;
+                z-index: 4000;
+                pointer-events: none;
+                animation: floatUp 2s ease forwards;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            `;
+            message.textContent = text;
+            document.body.appendChild(message);
+            
+            // Add animation
+            if (!document.querySelector('#float-animation')) {
+                const style = document.createElement('style');
+                style.id = 'float-animation';
+                style.textContent = `
+                    @keyframes floatUp {
+                        0% { opacity: 0; transform: translateX(-50%) translateY(10px) scale(0.8); }
+                        20% { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+                        80% { opacity: 1; transform: translateX(-50%) translateY(-10px) scale(1); }
+                        100% { opacity: 0; transform: translateX(-50%) translateY(-20px) scale(0.9); }
+                    }
+                `;
+                document.head.appendChild(style);
+            }
+            
+            setTimeout(() => message.remove(), 2000);
+        }
+
+        // Premium modal functions
+        function showPremiumModal() {
+            document.getElementById('premiumModal').style.display = 'block';
+            initPayPal();
+        }
+
+        function closePremiumModal() {
+            document.getElementById('premiumModal').style.display = 'none';
+        }
+
+        // Drag and drop functionality
+        const uploadArea = document.querySelector('.upload-area');
+
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            
+            const files = Array.from(e.dataTransfer.files).filter(file => file.type === 'application/pdf');
+            if (files.length > 0) {
+                selectedFiles = files;
+                displayFiles();
+            }
+        });
+
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            const modal = document.getElementById('premiumModal');
+            if (event.target === modal) {
+                closePremiumModal();
+            }
+        }
+
+        // Initialize on load
+        window.addEventListener('load', async () => {
+            await loadUserStatus();
+            selectTool('merge');
+        });
+    </script>
+</body>
+</html><!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -330,7 +1425,29 @@
             cursor: not-allowed;
         }
 
-        /* Premium Modal */
+        /* Processing Animation */
+        .processing {
+            display: none;
+            text-align: center;
+            padding: 40px;
+        }
+
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #e53e3e;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Premium Modal Styles */
         .modal {
             display: none;
             position: fixed;
@@ -350,7 +1467,7 @@
             background: white;
             border-radius: 12px;
             padding: 40px;
-            max-width: 500px;
+            max-width: 550px;
             width: 90%;
             max-height: 90vh;
             overflow-y: auto;
@@ -418,6 +1535,8 @@
 
         #paypal-button-container {
             margin: 20px 0;
+            min-height: 55px;
+            border-radius: 8px;
         }
 
         .premium-code-section {
@@ -434,25 +1553,61 @@
 
         .code-input-group {
             display: flex;
-            gap: 10px;
+            gap: 12px;
         }
 
         .code-input-group input {
             flex: 1;
-            padding: 10px;
-            border: 1px solid #e2e8f0;
-            border-radius: 6px;
-            font-size: 0.9rem;
+            padding: 12px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 0.95rem;
+            font-family: 'Courier New', monospace;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            transition: border-color 0.3s;
         }
 
         .code-input-group button {
             background: #48bb78;
             color: white;
             border: none;
-            padding: 10px 20px;
-            border-radius: 6px;
+            padding: 12px 24px;
+            border-radius: 8px;
             cursor: pointer;
-            font-size: 0.9rem;
+            font-size: 0.95rem;
+            font-weight: 600;
+            transition: background 0.3s;
+            white-space: nowrap;
+        }
+
+        /* Enhanced modal styles */
+        #premiumCode:focus {
+            outline: none;
+            border-color: #4299e1 !important;
+            box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.1);
+        }
+
+        .code-input-group button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(72, 187, 120, 0.3);
+        }
+
+        /* Loading state for premium code button */
+        .code-activating {
+            opacity: 0.7;
+            pointer-events: none;
+        }
+
+        .code-activating::after {
+            content: "...";
+            animation: dots 1.5s infinite;
+        }
+
+        @keyframes dots {
+            0%, 20% { opacity: 0; }
+            40% { opacity: 1; }
+            100% { opacity: 0; }
         }
 
         /* Footer */
@@ -502,26 +1657,68 @@
             font-size: 0.9rem;
         }
 
-        /* Processing Animation */
-        .processing {
-            display: none;
-            text-align: center;
-            padding: 40px;
+        /* Animation keyframes for success modals */
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        
+        @keyframes slideIn {
+            from { transform: scale(0.9) translateY(20px); opacity: 0; }
+            to { transform: scale(1) translateY(0); opacity: 1; }
+        }
+        
+        @keyframes bounce {
+            0%, 20%, 50%, 80%, 100% { transform: translateY(0); }
+            40% { transform: translateY(-10px); }
+            60% { transform: translateY(-5px); }
+        }
+        
+        @keyframes rotate {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
         }
 
-        .spinner {
-            border: 3px solid #f3f3f3;
-            border-top: 3px solid #e53e3e;
+        @keyframes slideInRight {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        
+        @keyframes slideOutRight {
+            from { transform: translateX(0); opacity: 1; }
+            to { transform: translateX(100%); opacity: 0; }
+        }
+
+        @keyframes floatUp {
+            0% { opacity: 0; transform: translateX(-50%) translateY(10px) scale(0.8); }
+            20% { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+            80% { opacity: 1; transform: translateX(-50%) translateY(-10px) scale(1); }
+            100% { opacity: 0; transform: translateX(-50%) translateY(-20px) scale(0.9); }
+        }
+
+        /* Enhanced effects */
+        .close-btn:hover {
+            background: rgba(229, 62, 62, 0.1);
+            color: #e53e3e;
             border-radius: 50%;
-            width: 40px;
-            height: 40px;
-            animation: spin 1s linear infinite;
-            margin: 0 auto 20px;
         }
 
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+        #premiumCode::placeholder {
+            color: #a0aec0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            letter-spacing: normal;
+            text-transform: none;
+        }
+
+        .premium-features li:hover {
+            color: #2d3748;
+            transform: translateX(3px);
+            transition: all 0.2s ease;
+        }
+
+        .premium-features li:hover:before {
+            color: #38a169;
+            transform: scale(1.2);
         }
 
         /* Mobile Responsive */
@@ -549,6 +1746,56 @@
 
             .upload-area {
                 padding: 40px 20px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .modal-content {
+                padding: 20px;
+                margin: 10px;
+                width: calc(100% - 20px);
+            }
+
+            .price {
+                font-size: 2rem;
+            }
+
+            .code-input-group {
+                flex-direction: column;
+                gap: 8px;
+            }
+
+            .code-input-group button {
+                padding: 14px 20px;
+                width: 100%;
+            }
+
+            .premium-features {
+                font-size: 0.9rem;
+            }
+
+            .feature-badge {
+                font-size: 0.8rem;
+                padding: 8px 15px;
+            }
+        }
+
+        /* Accessibility improvements */
+        @media (prefers-reduced-motion: reduce) {
+            .modal-content,
+            .close-btn,
+            .code-input-group button,
+            .premium-features li {
+                transition: none;
+                animation: none;
+            }
+        }
+
+        /* Modal backdrop blur effect */
+        @supports (backdrop-filter: blur(5px)) {
+            .modal {
+                backdrop-filter: blur(5px);
+                background: rgba(0,0,0,0.5);
             }
         }
     </style>
@@ -690,15 +1937,44 @@
                     <li>No watermarks</li>
                 </ul>
                 
+                <!-- Benefits callout -->
+                <div style="background: #f0f8ff; border: 2px solid #4299e1; border-radius: 12px; padding: 20px; margin: 25px 0; text-align: center;">
+                    <div style="display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 12px;">
+                        <span style="font-size: 1.5rem;">🎫</span>
+                        <strong style="color: #2a69ac; font-size: 1.1rem;">You'll receive a premium code!</strong>
+                    </div>
+                    <p style="color: #2a69ac; margin: 0; font-size: 0.95rem; line-height: 1.4;">
+                        After payment, you'll get a unique premium code that works on any device. 
+                        Save it to reactivate premium access anytime within 24 hours!
+                    </p>
+                </div>
+                
                 <!-- PayPal Button Container -->
                 <div id="paypal-button-container"></div>
                 
                 <!-- Premium Code Entry -->
-                <div class="premium-code-section">
-                    <p>Already paid? Enter your code:</p>
+                <div class="premium-code-section" style="margin-top: 30px; padding-top: 25px; border-top: 2px solid #e2e8f0;">
+                    <div style="text-align: center; margin-bottom: 15px;">
+                        <h4 style="color: #2d3748; margin: 0 0 8px 0;">Already have a premium code?</h4>
+                        <p style="color: #666; margin: 0; font-size: 0.9rem;">Enter your code below to activate premium access</p>
+                    </div>
                     <div class="code-input-group">
-                        <input type="text" id="premiumCode" placeholder="Premium code" />
-                        <button onclick="activatePremiumCode()">Activate</button>
+                        <input type="text" 
+                               id="premiumCode" 
+                               placeholder="Enter your premium code" 
+                               onkeypress="if(event.key==='Enter') activatePremiumCode()"
+                               oninput="this.value = this.value.replace(/[^a-zA-Z0-9_]/g, '').toUpperCase()"
+                        />
+                        <button onclick="activatePremiumCode()" 
+                                onmouseover="this.style.background='#38a169'"
+                                onmouseout="this.style.background='#48bb78'">
+                            Activate Code
+                        </button>
+                    </div>
+                    <div style="text-align: center; margin-top: 12px;">
+                        <small style="color: #666; font-size: 0.8rem;">
+                            Premium codes are case-insensitive and work across all devices
+                        </small>
                     </div>
                 </div>
             </div>
@@ -734,674 +2010,3 @@
             <p>&copy; 2025 PDF Utility Suite. All rights reserved.</p>
         </div>
     </footer>
-
-    <script>
-        // Backend URL configuration
-        const BACKEND_URL = window.location.hostname === 'localhost' 
-            ? 'http://localhost:3001' 
-            : 'https://pdf-tools-3r9n.onrender.com';
-        
-        let currentTool = '';
-        let selectedFiles = [];
-        let userId = localStorage.getItem('userId');
-        let userStatus = null;
-        let paypalOrderId = null;
-
-        // Tool configurations with updated freemium limits
-        const toolConfigs = {
-            merge: { title: 'Merge PDFs Online', freeLimit: null, requiresPremium: false },
-            compress: { title: 'Compress PDF Online', freeLimit: null, requiresPremium: false },
-            split: { title: 'Split PDF Online', freeLimit: 5, requiresPremium: false },
-            edit: { title: 'Edit PDF Online', freeLimit: 2, requiresPremium: false },
-            repair: { title: 'Repair PDF Online', freeLimit: 2, requiresPremium: false },
-            convert: { title: 'Convert PDF Online', freeLimit: null, requiresPremium: false }
-        };
-
-        // Initialize PayPal when modal opens
-        function initPayPal() {
-            if (document.querySelector('#paypal-button-container').innerHTML) {
-                return; // Already initialized
-            }
-
-            paypal.Buttons({
-                createOrder: function(data, actions) {
-                    return actions.order.create({
-                        purchase_units: [{
-                            amount: {
-                                value: '2.00',
-                                currency_code: 'USD'
-                            },
-                            description: 'PDF Tools Premium Access - 24 Hours'
-                        }]
-                    });
-                },
-                
-                onApprove: async function(data, actions) {
-                    try {
-                        // Capture the payment
-                        const details = await actions.order.capture();
-                        
-                        console.log('PayPal payment captured:', details);
-                        
-                        // Send payment details to backend for verification
-                        const response = await fetch(`${BACKEND_URL}/api/capture-paypal-payment`, {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'X-User-ID': userId
-                            },
-                            body: JSON.stringify({
-                                orderId: data.orderID,
-                                payerId: data.payerID,
-                                paymentDetails: details
-                            })
-                        });
-                        
-                        const result = await response.json();
-                        
-                        if (result.success) {
-                            closePremiumModal();
-                            await loadUserStatus();
-                            showSuccessMessage(result.message || 'Payment successful! You now have 24-hour premium access.');
-                            
-                            if (currentTool) {
-                                selectTool(currentTool);
-                            }
-                        } else {
-                            console.error('Backend verification failed:', result);
-                            alert('Payment verification failed. Please contact support with order ID: ' + data.orderID);
-                        }
-                    } catch (error) {
-                        console.error('Error processing payment:', error);
-                        alert('Payment processing failed. Please contact support.');
-                    }
-                },
-                
-                onError: function(err) {
-                    console.error('PayPal error:', err);
-                    alert('Payment failed. Please try again or contact support.');
-                },
-                
-                onCancel: function(data) {
-                    console.log('PayPal payment cancelled:', data);
-                    // Payment was cancelled, do nothing special
-                },
-
-                style: {
-                    layout: 'vertical',
-                    color: 'blue',
-                    shape: 'rect',
-                    label: 'paypal',
-                    height: 45
-                }
-            }).render('#paypal-button-container');
-        }
-
-        // Load user status from backend
-        async function loadUserStatus() {
-            try {
-                const response = await fetch(`${BACKEND_URL}/api/user-status`, {
-                    headers: {
-                        'X-User-ID': userId
-                    }
-                });
-                
-                const status = await response.json();
-                userId = status.userId;
-                userStatus = status;
-                
-                localStorage.setItem('userId', userId);
-                
-                // Update UI
-                updatePremiumStatus(status.isPremium, status.premiumUntil);
-                updateUsageCounters(status.usage);
-                
-                console.log('User status loaded:', status);
-            } catch (error) {
-                console.error('Failed to load user status:', error);
-            }
-        }
-
-        // Update premium status in header
-        function updatePremiumStatus(isPremium, premiumUntil) {
-            const statusElement = document.getElementById('premiumStatus');
-            
-            if (isPremium) {
-                statusElement.textContent = '✨ Premium Active';
-                statusElement.className = 'premium-status';
-                
-                if (premiumUntil) {
-                    const expiry = new Date(premiumUntil);
-                    const timeLeft = Math.ceil((expiry - new Date()) / (1000 * 60 * 60));
-                    if (timeLeft > 0) {
-                        statusElement.textContent = `✨ Premium (${timeLeft}h left)`;
-                    }
-                }
-            } else {
-                statusElement.textContent = 'Free User';
-                statusElement.className = 'premium-status free';
-            }
-        }
-
-        // Update usage counters on tool cards
-        function updateUsageCounters(usage) {
-            Object.keys(toolConfigs).forEach(tool => {
-                const counterElement = document.getElementById(`${tool}-usage`);
-                const config = toolConfigs[tool];
-                
-                if (config.freeLimit !== null && !userStatus?.isPremium) {
-                    const used = usage[tool] || 0;
-                    const remaining = Math.max(0, config.freeLimit - used);
-                    
-                    counterElement.textContent = `${used}/${config.freeLimit} free uses`;
-                    
-                    if (remaining === 0) {
-                        counterElement.className = 'usage-counter warning';
-                        counterElement.textContent += ' - Upgrade to continue';
-                    } else if (remaining <= 1) {
-                        counterElement.className = 'usage-counter warning';
-                    } else {
-                        counterElement.className = 'usage-counter';
-                    }
-                } else if (config.freeLimit !== null && userStatus?.isPremium) {
-                    counterElement.textContent = 'Premium: Unlimited';
-                    counterElement.className = 'usage-counter';
-                } else {
-                    counterElement.textContent = 'Always Free';
-                    counterElement.className = 'usage-counter';
-                }
-            });
-        }
-
-        // Select tool
-        function selectTool(tool) {
-            currentTool = tool;
-            const config = toolConfigs[tool];
-            
-            // Check if user has exceeded free limit
-            if (!userStatus?.isPremium && config.freeLimit !== null) {
-                const used = userStatus?.usage[tool] || 0;
-                if (used >= config.freeLimit) {
-                    showPremiumModal();
-                    return;
-                }
-            }
-            
-            // Update UI
-            document.querySelectorAll('.tool-card').forEach(card => {
-                card.classList.remove('active');
-            });
-            document.getElementById(tool).classList.add('active');
-            
-            // Show active tool section
-            document.getElementById('activeToolSection').style.display = 'block';
-            document.getElementById('activeToolTitle').textContent = config.title;
-            document.getElementById('processBtn').textContent = `Process ${tool.charAt(0).toUpperCase() + tool.slice(1)}`;
-            
-            // Clear previous files and options
-            selectedFiles = [];
-            document.getElementById('fileInput').value = '';
-            document.getElementById('fileList').innerHTML = '';
-            document.getElementById('processBtn').style.display = 'none';
-            
-            // Remove existing options
-            const existingOptions = document.querySelectorAll('#convertOptions, #splitOptions');
-            existingOptions.forEach(option => option.remove());
-            
-            const uploadArea = document.querySelector('.upload-area');
-            
-            // Add convert options
-            if (tool === 'convert') {
-                const convertOptions = document.createElement('div');
-                convertOptions.id = 'convertOptions';
-                convertOptions.innerHTML = `
-                    <div style="margin: 20px 0; padding: 20px; background: #f7fafc; border-radius: 10px;">
-                        <h4 style="margin-bottom: 15px; color: #2d3748;">Choose Output Format:</h4>
-                        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-                            <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; padding: 8px 12px; background: white; border: 2px solid #e2e8f0; border-radius: 6px; transition: all 0.3s;">
-                                <input type="radio" name="convertFormat" value="word" checked style="margin: 0;">
-                                <span>📝 Word (Free)</span>
-                            </label>
-                            <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; padding: 8px 12px; background: white; border: 2px solid #e2e8f0; border-radius: 6px; transition: all 0.3s;">
-                                <input type="radio" name="convertFormat" value="excel" style="margin: 0;">
-                                <span>📊 Excel (Free)</span>
-                            </label>
-                            <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; padding: 8px 12px; background: white; border: 2px solid #e2e8f0; border-radius: 6px; transition: all 0.3s;">
-                                <input type="radio" name="convertFormat" value="text" style="margin: 0;">
-                                <span>📄 Text (Free)</span>
-                            </label>
-                            <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; padding: 8px 12px; background: white; border: 2px solid #e2e8f0; border-radius: 6px; transition: all 0.3s; ${!userStatus?.isPremium ? 'opacity: 0.6;' : ''}">
-                                <input type="radio" name="convertFormat" value="powerpoint" ${!userStatus?.isPremium ? 'disabled' : ''} style="margin: 0;">
-                                <span>📺 PowerPoint ${!userStatus?.isPremium ? '(Premium)' : ''}</span>
-                            </label>
-                            <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; padding: 8px 12px; background: white; border: 2px solid #e2e8f0; border-radius: 6px; transition: all 0.3s; ${!userStatus?.isPremium ? 'opacity: 0.6;' : ''}">
-                                <input type="radio" name="convertFormat" value="images" ${!userStatus?.isPremium ? 'disabled' : ''} style="margin: 0;">
-                                <span>🖼️ Images ${!userStatus?.isPremium ? '(Premium)' : ''}</span>
-                            </label>
-                        </div>
-                        <div style="margin-top: 15px; padding: 12px; background: #fff8dc; border-radius: 6px; border-left: 4px solid #f6ad55;">
-                            <strong>Free vs Premium:</strong><br>
-                            • Free: Word, Excel, and Text conversion<br>
-                            • Premium: All formats with advanced OCR and formatting
-                        </div>
-                    </div>
-                `;
-                
-                uploadArea.parentNode.insertBefore(convertOptions, uploadArea.nextSibling);
-                addConvertEventListeners(convertOptions);
-            }
-            
-            // Add split options (basic for free users)
-            if (tool === 'split') {
-                const splitOptions = document.createElement('div');
-                splitOptions.id = 'splitOptions';
-                splitOptions.innerHTML = `
-                    <div style="margin: 20px 0; padding: 20px; background: #f7fafc; border-radius: 10px;">
-                        <h4 style="margin-bottom: 15px; color: #2d3748;">Choose Split Method:</h4>
-                        <div style="margin-bottom: 20px;">
-                            <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; cursor: pointer;">
-                                <input type="radio" name="splitMethod" value="all_pages" checked>
-                                <span>Split into individual pages (1 page per file)</span>
-                            </label>
-                            <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; cursor: pointer;" ${!userStatus?.isPremium ? 'style="opacity: 0.6;"' : ''}>
-                                <input type="radio" name="splitMethod" value="page_ranges" ${!userStatus?.isPremium ? 'disabled' : ''}>
-                                <span>Split by page ranges (specify custom ranges) ${!userStatus?.isPremium ? '- Premium' : ''}</span>
-                            </label>
-                            <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; cursor: pointer;" ${!userStatus?.isPremium ? 'style="opacity: 0.6;"' : ''}>
-                                <input type="radio" name="splitMethod" value="equal_parts" ${!userStatus?.isPremium ? 'disabled' : ''}>
-                                <span>Split into equal parts ${!userStatus?.isPremium ? '- Premium' : ''}</span>
-                            </label>
-                        </div>
-                        
-                        <div id="splitCustomOptions" style="display: none; margin-top: 15px;">
-                            <div id="pageRangesInput" style="display: none;">
-                                <label style="display: block; margin-bottom: 8px; font-weight: 500;">Page Ranges (e.g., 1-3, 5-7, 10):</label>
-                                <input type="text" id="pageRanges" placeholder="1-3, 5-7, 10" style="
-                                    width: 100%;
-                                    padding: 10px;
-                                    border: 1px solid #e2e8f0;
-                                    border-radius: 6px;
-                                    font-size: 0.9rem;
-                                " />
-                            </div>
-                            
-                            <div id="equalPartsInput" style="display: none;">
-                                <label style="display: block; margin-bottom: 8px; font-weight: 500;">Number of Parts:</label>
-                                <input type="number" id="numberOfParts" min="2" max="50" value="2" style="
-                                    width: 100px;
-                                    padding: 10px;
-                                    border: 1px solid #e2e8f0;
-                                    border-radius: 6px;
-                                    font-size: 0.9rem;
-                                " />
-                            </div>
-                        </div>
-                        
-                        <div style="margin-top: 15px; padding: 12px; background: #fff8dc; border-radius: 6px; border-left: 4px solid #f6ad55;">
-                            <strong>Split Options:</strong><br>
-                            • Free: Split into individual pages<br>
-                            • Premium: Custom page ranges and equal parts
-                        </div>
-                    </div>
-                `;
-                
-                uploadArea.parentNode.insertBefore(splitOptions, uploadArea.nextSibling);
-                addSplitEventListeners(splitOptions);
-            }
-            
-            // Scroll to active tool section
-            document.getElementById('activeToolSection').scrollIntoView({ behavior: 'smooth' });
-        }
-
-        // Event listeners for convert options
-        function addConvertEventListeners(convertOptions) {
-            const labels = convertOptions.querySelectorAll('label');
-            labels.forEach(label => {
-                label.addEventListener('mouseenter', () => {
-                    label.style.borderColor = '#e53e3e';
-                    label.style.backgroundColor = '#fed7d7';
-                });
-                label.addEventListener('mouseleave', () => {
-                    if (!label.querySelector('input').checked) {
-                        label.style.borderColor = '#e2e8f0';
-                        label.style.backgroundColor = 'white';
-                    }
-                });
-                
-                const input = label.querySelector('input');
-                input.addEventListener('change', () => {
-                    if (input.disabled && !userStatus?.isPremium) {
-                        input.checked = false;
-                        document.querySelector('input[name="convertFormat"][value="word"]').checked = true;
-                        showPremiumModal();
-                        return;
-                    }
-                    
-                    labels.forEach(l => {
-                        l.style.borderColor = '#e2e8f0';
-                        l.style.backgroundColor = 'white';
-                    });
-                    if (input.checked) {
-                        label.style.borderColor = '#e53e3e';
-                        label.style.backgroundColor = '#fed7d7';
-                    }
-                });
-            });
-        }
-
-        // Event listeners for split options
-        function addSplitEventListeners(splitOptions) {
-            const splitMethodRadios = splitOptions.querySelectorAll('input[name="splitMethod"]');
-            const customOptions = splitOptions.querySelector('#splitCustomOptions');
-            const pageRangesInput = splitOptions.querySelector('#pageRangesInput');
-            const equalPartsInput = splitOptions.querySelector('#equalPartsInput');
-            
-            splitMethodRadios.forEach(radio => {
-                radio.addEventListener('change', () => {
-                    if (radio.disabled && !userStatus?.isPremium) {
-                        radio.checked = false;
-                        document.querySelector('input[name="splitMethod"][value="all_pages"]').checked = true;
-                        showPremiumModal();
-                        return;
-                    }
-                    
-                    if (radio.value === 'all_pages') {
-                        customOptions.style.display = 'none';
-                    } else {
-                        customOptions.style.display = 'block';
-                        if (radio.value === 'page_ranges') {
-                            pageRangesInput.style.display = 'block';
-                            equalPartsInput.style.display = 'none';
-                        } else if (radio.value === 'equal_parts') {
-                            pageRangesInput.style.display = 'none';
-                            equalPartsInput.style.display = 'block';
-                        }
-                    }
-                });
-            });
-        }
-
-        // File input handler
-        document.getElementById('fileInput').addEventListener('change', handleFileSelect);
-
-        function handleFileSelect(event) {
-            const files = Array.from(event.target.files);
-            selectedFiles = files;
-            displayFiles();
-        }
-
-        // Display selected files
-        function displayFiles() {
-            const fileList = document.getElementById('fileList');
-            fileList.innerHTML = '';
-            
-            selectedFiles.forEach((file, index) => {
-                const fileItem = document.createElement('div');
-                fileItem.className = 'file-item';
-                fileItem.innerHTML = `
-                    <div class="file-info">
-                        <span>📄</span>
-                        <span>${file.name}</span>
-                        <span style="color: #666; font-size: 0.9rem;">(${(file.size / 1024 / 1024).toFixed(2)} MB)</span>
-                    </div>
-                    <button class="remove-file" onclick="removeFile(${index})">Remove</button>
-                `;
-                fileList.appendChild(fileItem);
-            });
-            
-            document.getElementById('processBtn').style.display = selectedFiles.length > 0 ? 'block' : 'none';
-        }
-
-        // Remove file
-        function removeFile(index) {
-            selectedFiles.splice(index, 1);
-            displayFiles();
-        }
-
-        // Process files
-        async function processFiles() {
-            if (selectedFiles.length === 0) return;
-            
-            const config = toolConfigs[currentTool];
-            
-            // Check usage limits for non-premium users
-            if (!userStatus?.isPremium && config.freeLimit !== null) {
-                const currentUsage = userStatus.usage[currentTool] || 0;
-                if (currentUsage >= config.freeLimit) {
-                    showPremiumModal();
-                    return;
-                }
-            }
-            
-            // Check convert format restrictions
-            if (currentTool === 'convert') {
-                const selectedFormat = document.querySelector('input[name="convertFormat"]:checked');
-                const premiumFormats = ['powerpoint', 'images'];
-                
-                if (!userStatus?.isPremium && selectedFormat && premiumFormats.includes(selectedFormat.value)) {
-                    showPremiumModal();
-                    return;
-                }
-            }
-            
-            document.getElementById('processing').style.display = 'block';
-            document.getElementById('processBtn').style.display = 'none';
-            
-            try {
-                const formData = new FormData();
-                selectedFiles.forEach(file => {
-                    formData.append('files', file);
-                });
-                formData.append('tool', currentTool);
-                
-                // Add split options
-                if (currentTool === 'split') {
-                    const splitMethod = document.querySelector('input[name="splitMethod"]:checked')?.value || 'all_pages';
-                    formData.append('splitMethod', splitMethod);
-                    
-                    if (splitMethod === 'page_ranges') {
-                        const pageRanges = document.getElementById('pageRanges')?.value || '';
-                        formData.append('pageRanges', pageRanges);
-                    } else if (splitMethod === 'equal_parts') {
-                        const numberOfParts = document.getElementById('numberOfParts')?.value || '2';
-                        formData.append('numberOfParts', numberOfParts);
-                    }
-                }
-                
-                // Add conversion format for convert tool
-                if (currentTool === 'convert') {
-                    const selectedFormat = document.querySelector('input[name="convertFormat"]:checked');
-                    if (selectedFormat) {
-                        formData.append('convertTo', selectedFormat.value);
-                    }
-                }
-                
-                const response = await fetch(`${BACKEND_URL}/api/process-pdf`, {
-                    method: 'POST',
-                    headers: {
-                        'X-User-ID': userId
-                    },
-                    body: formData,
-                });
-                
-                if (!response.ok) {
-                    const errorData = await response.json().catch(async () => {
-                        const text = await response.text().catch(() => 'No error details available');
-                        return { error: `HTTP ${response.status}: ${text}` };
-                    });
-                    throw new Error(errorData.error || `Server error: ${response.status}`);
-                }
-                
-                const result = await response.json();
-                
-                if (result.success && result.downloadUrl) {
-                    // Update user status
-                    await loadUserStatus();
-                    
-                    // Create download link
-                    const link = document.createElement('a');
-                    link.href = `${BACKEND_URL}${result.downloadUrl}`;
-                    link.download = result.filename || 'processed.pdf';
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
-                    
-                    let successMessage = '✅ File processed successfully!';
-                    if (result.remainingUses !== null) {
-                        successMessage += ` You have ${result.remainingUses} free uses remaining for this tool.`;
-                    }
-                    
-                    alert(successMessage);
-                } else {
-                    throw new Error('Processing failed - no download URL received');
-                }
-                
-            } catch (error) {
-                console.error('Processing error:', error);
-                
-                let errorMessage = 'Processing failed. ';
-                if (error.message.includes('Failed to fetch')) {
-                    errorMessage += 'Cannot connect to server. Please try again later.';
-                } else if (error.message.includes('limit reached')) {
-                    errorMessage = error.message + ' Click upgrade to continue.';
-                    setTimeout(() => showPremiumModal(), 1000);
-                } else {
-                    errorMessage += error.message;
-                }
-                
-                alert('❌ ' + errorMessage);
-            } finally {
-                document.getElementById('processing').style.display = 'none';
-                document.getElementById('processBtn').style.display = 'block';
-            }
-        }
-
-        // Premium modal functions
-        function showPremiumModal() {
-            document.getElementById('premiumModal').style.display = 'block';
-            initPayPal();
-        }
-
-        function closePremiumModal() {
-            document.getElementById('premiumModal').style.display = 'none';
-        }
-
-        // Activate premium code
-        async function activatePremiumCode() {
-            const code = document.getElementById('premiumCode').value.trim();
-            
-            if (!code) {
-                alert('Please enter a premium code');
-                return;
-            }
-            
-            try {
-                const response = await fetch(`${BACKEND_URL}/api/activate-premium-code`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-User-ID': userId
-                    },
-                    body: JSON.stringify({ code })
-                });
-                
-                const result = await response.json();
-                
-                if (result.success) {
-                    closePremiumModal();
-                    await loadUserStatus();
-                    showSuccessMessage(result.message);
-                    
-                    if (currentTool) {
-                        selectTool(currentTool);
-                    }
-                } else {
-                    alert('❌ ' + result.error);
-                }
-            } catch (error) {
-                console.error('Code activation error:', error);
-                alert('❌ Code activation failed. Please try again.');
-            }
-        }
-
-        // Show success message
-        function showSuccessMessage(message) {
-            const successHtml = `
-                <div style="
-                    position: fixed;
-                    top: 0;
-                    left: 0;
-                    width: 100%;
-                    height: 100%;
-                    background: rgba(0,0,0,0.7);
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    z-index: 2000;
-                " onclick="this.remove()">
-                    <div style="
-                        background: white;
-                        border-radius: 15px;
-                        padding: 40px;
-                        text-align: center;
-                        max-width: 400px;
-                        margin: 20px;
-                    " onclick="event.stopPropagation()">
-                        <div style="font-size: 3rem; margin-bottom: 20px;">🎉</div>
-                        <h2 style="color: #48bb78; margin-bottom: 15px;">Success!</h2>
-                        <p style="color: #666; margin-bottom: 20px;">${message}</p>
-                        <button onclick="this.closest('div[style*=\"position: fixed\"]').remove()" style="
-                            background: #e53e3e;
-                            color: white;
-                            border: none;
-                            padding: 12px 24px;
-                            border-radius: 6px;
-                            cursor: pointer;
-                            font-weight: 600;
-                        ">Continue</button>
-                    </div>
-                </div>
-            `;
-            
-            document.body.insertAdjacentHTML('beforeend', successHtml);
-        }
-
-        // Drag and drop functionality
-        const uploadArea = document.querySelector('.upload-area');
-
-        uploadArea.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            uploadArea.classList.add('dragover');
-        });
-
-        uploadArea.addEventListener('dragleave', () => {
-            uploadArea.classList.remove('dragover');
-        });
-
-        uploadArea.addEventListener('drop', (e) => {
-            e.preventDefault();
-            uploadArea.classList.remove('dragover');
-            
-            const files = Array.from(e.dataTransfer.files).filter(file => file.type === 'application/pdf');
-            if (files.length > 0) {
-                selectedFiles = files;
-                displayFiles();
-            }
-        });
-
-        // Close modal when clicking outside
-        window.onclick = function(event) {
-            const modal = document.getElementById('premiumModal');
-            if (event.target === modal) {
-                closePremiumModal();
-            }
-        }
-
-        // Initialize on load
-        window.addEventListener('load', async () => {
-            await loadUserStatus();
-            selectTool('merge');
-        });
-    </script>
-</body>
-</html>
