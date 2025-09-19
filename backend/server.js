@@ -14,19 +14,10 @@ const PORT = process.env.PORT || 3001;
 // In production, use a database like Redis or MongoDB
 const userSessions = new Map(); // userId -> { usage: {tool: count}, premiumUntil: Date }
 const activePayments = new Map(); // paymentId -> { userId, amount, status }
-const generatedCodes = new Map(); // code -> { userId, createdAt, used: boolean, paypalOrderId, etc. }
 
 // Generate unique user ID
 function generateUserId() {
     return `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-}
-
-// Generate unique premium codes
-function generatePremiumCode() {
-    const prefix = 'PREMIUM';
-    const timestamp = Date.now().toString(36).toUpperCase();
-    const random = Math.random().toString(36).substr(2, 6).toUpperCase();
-    return `${prefix}_${timestamp}_${random}`;
 }
 
 // Get or create user session
@@ -47,6 +38,17 @@ function getUserSession(userId) {
 function hasPremiumAccess(session) {
     return session.premiumUntil && new Date() < session.premiumUntil;
 }
+
+// Generate unique premium codes - NEW FUNCTION
+function generatePremiumCode() {
+    const prefix = 'PREMIUM';
+    const timestamp = Date.now().toString(36).toUpperCase();
+    const random = Math.random().toString(36).substr(2, 6).toUpperCase();
+    return `${prefix}_${timestamp}_${random}`;
+}
+
+// Store for generated codes - NEW
+const generatedCodes = new Map(); // code -> { userId, createdAt, used: boolean, paypalOrderId }
 
 // Updated tool configurations with new freemium model
 const toolConfigs = {
@@ -648,7 +650,7 @@ app.post('/api/create-paypal-order', async (req, res) => {
     }
 });
 
-// Enhanced PayPal payment capture endpoint with premium code generation
+// Capture PayPal payment endpoint - UPDATED WITH PREMIUM CODE GENERATION
 app.post('/api/capture-paypal-payment', async (req, res) => {
     try {
         const { orderId, payerId, paymentDetails } = req.body;
@@ -679,7 +681,7 @@ app.post('/api/capture-paypal-payment', async (req, res) => {
         // Get or create user session
         const { userId: finalUserId, session } = getUserSession(userId);
         
-        // Generate premium code FIRST
+        // Generate premium code - NEW
         const premiumCode = generatePremiumCode();
         
         // Grant premium access for 24 hours
@@ -689,11 +691,11 @@ app.post('/api/capture-paypal-payment', async (req, res) => {
         session.premiumUntil = premiumExpiry;
         userSessions.set(finalUserId, session);
         
-        // Store generated code
+        // Store generated code - NEW
         generatedCodes.set(premiumCode, {
             userId: finalUserId,
             createdAt: new Date(),
-            used: true, // Already activated
+            used: true,
             paypalOrderId: orderId,
             paypalPayerId: payerId
         });
@@ -704,35 +706,28 @@ app.post('/api/capture-paypal-payment', async (req, res) => {
         res.json({
             success: true,
             premiumUntil: premiumExpiry.toISOString(),
-            premiumCode: premiumCode,
+            premiumCode: premiumCode, // NEW
             message: `Payment successful! You now have 24-hour premium access. Your premium code: ${premiumCode}`,
-            orderId: orderId,
-            userId: finalUserId
+            orderId: orderId
         });
         
     } catch (error) {
         console.error('Payment capture error:', error);
-        res.status(500).json({ error: 'Payment capture failed', details: error.message });
+        res.status(500).json({ error: 'Payment capture failed' });
     }
 });
 
-// Enhanced premium code activation endpoint
+// Premium code activation endpoint - UPDATED TO HANDLE GENERATED CODES
 app.post('/api/activate-premium-code', async (req, res) => {
     try {
         const { code } = req.body;
         const userId = req.headers['x-user-id'];
         const { userId: finalUserId, session } = getUserSession(userId);
         
-        if (!code || !code.trim()) {
-            return res.status(400).json({ error: 'Premium code is required' });
-        }
-        
+        const validCodes = ['PREMIUM24H', 'TESTCODE123', 'LAUNCH2024', 'DEMO2024'];
         const codeUpper = code.toUpperCase().trim();
         
-        // Check predefined codes (for testing/demo purposes)
-        const validCodes = ['PREMIUM24H', 'TESTCODE123', 'LAUNCH2024', 'DEMO2024', 'FREEPREMIUM'];
-        
-        // Check generated codes
+        // Check generated codes - NEW
         const isGeneratedCode = generatedCodes.has(codeUpper);
         const isValidPredefinedCode = validCodes.includes(codeUpper);
         
@@ -743,159 +738,27 @@ app.post('/api/activate-premium-code', async (req, res) => {
             session.premiumUntil = premiumExpiry;
             userSessions.set(finalUserId, session);
             
-            let codeInfo = { type: 'predefined' };
-            
-            // Handle generated codes
+            // Handle generated codes - NEW
             if (isGeneratedCode) {
                 const codeData = generatedCodes.get(codeUpper);
                 codeData.activatedBy = finalUserId;
                 codeData.activatedAt = new Date();
-                codeData.reused = codeData.used; // Track if this was a reuse
                 codeData.used = true;
-                
-                codeInfo = {
-                    type: 'generated',
-                    originalUser: codeData.userId,
-                    createdAt: codeData.createdAt,
-                    paypalOrderId: codeData.paypalOrderId || null
-                };
             }
-            
-            console.log(`Premium code activated: ${codeUpper} by user ${finalUserId}`, codeInfo);
             
             res.json({
                 success: true,
                 premiumUntil: premiumExpiry.toISOString(),
                 userId: finalUserId,
-                message: 'Premium code activated successfully! You now have 24-hour premium access.',
-                codeType: codeInfo.type,
-                codeInfo: codeInfo
+                message: 'Premium code activated successfully!'
             });
         } else {
-            console.log(`Invalid premium code attempted: ${codeUpper} by user ${finalUserId}`);
-            res.status(400).json({ 
-                error: 'Invalid premium code. Please check your code and try again.',
-                code: codeUpper.substring(0, 8) + '...' // Log partial code for debugging
-            });
+            res.status(400).json({ error: 'Invalid premium code' });
         }
         
     } catch (error) {
         console.error('Code activation error:', error);
-        res.status(500).json({ error: 'Code activation failed', details: error.message });
-    }
-});
-
-// Validate premium codes without activating
-app.post('/api/validate-premium-code', async (req, res) => {
-    try {
-        const { code } = req.body;
-        
-        if (!code) {
-            return res.json({ valid: false, reason: 'No code provided' });
-        }
-        
-        const codeUpper = code.toUpperCase().trim();
-        const validCodes = ['PREMIUM24H', 'TESTCODE123', 'LAUNCH2024', 'DEMO2024', 'FREEPREMIUM'];
-        const isValidPredefinedCode = validCodes.includes(codeUpper);
-        const isGeneratedCode = generatedCodes.has(codeUpper);
-        
-        if (isValidPredefinedCode || isGeneratedCode) {
-            const codeInfo = isGeneratedCode ? generatedCodes.get(codeUpper) : null;
-            
-            res.json({
-                valid: true,
-                type: isGeneratedCode ? 'generated' : 'predefined',
-                used: codeInfo ? codeInfo.used : false,
-                createdAt: codeInfo ? codeInfo.createdAt : null,
-                canReuse: true // Both types can be reused in this implementation
-            });
-        } else {
-            res.json({ 
-                valid: false, 
-                reason: 'Code not found',
-                suggestion: 'Please check your code and try again'
-            });
-        }
-        
-    } catch (error) {
-        console.error('Code validation error:', error);
-        res.status(500).json({ error: 'Code validation failed' });
-    }
-});
-
-// Get premium code statistics (for admin/debugging)
-app.get('/api/premium-stats', async (req, res) => {
-    try {
-        // Only allow if admin token is provided (optional security)
-        const adminToken = req.headers['x-admin-token'];
-        if (adminToken !== process.env.ADMIN_TOKEN && process.env.NODE_ENV === 'production') {
-            return res.status(403).json({ error: 'Unauthorized' });
-        }
-        
-        const now = new Date();
-        let totalCodes = generatedCodes.size;
-        let usedCodes = 0;
-        let activeCodes = 0;
-        let recentCodes = 0;
-        
-        for (const [code, data] of generatedCodes.entries()) {
-            if (data.used) usedCodes++;
-            if (now - data.createdAt < 24 * 60 * 60 * 1000) {
-                recentCodes++; // Created in last 24 hours
-                if (data.used) activeCodes++; // Used and recent = likely still active
-            }
-        }
-        
-        res.json({
-            totalGeneratedCodes: totalCodes,
-            usedCodes: usedCodes,
-            unusedCodes: totalCodes - usedCodes,
-            recentCodes: recentCodes,
-            likelyActiveCodes: activeCodes,
-            activeSessions: userSessions.size
-        });
-        
-    } catch (error) {
-        console.error('Stats error:', error);
-        res.status(500).json({ error: 'Failed to get stats' });
-    }
-});
-
-// Generate manual premium codes (for admin use)
-app.post('/api/generate-manual-codes', async (req, res) => {
-    try {
-        const adminToken = req.headers['x-admin-token'];
-        if (adminToken !== process.env.ADMIN_TOKEN && process.env.NODE_ENV === 'production') {
-            return res.status(403).json({ error: 'Unauthorized' });
-        }
-        
-        const count = req.body.count || 1;
-        const codes = [];
-        
-        for (let i = 0; i < count; i++) {
-            const code = generatePremiumCode();
-            generatedCodes.set(code, {
-                userId: 'manual_generation',
-                createdAt: new Date(),
-                used: false,
-                type: 'manual',
-                generatedBy: 'admin'
-            });
-            codes.push(code);
-        }
-        
-        console.log(`Generated ${count} manual premium codes`);
-        
-        res.json({ 
-            success: true,
-            codes: codes,
-            count: codes.length,
-            message: `Generated ${count} premium codes successfully`
-        });
-        
-    } catch (error) {
-        console.error('Manual code generation error:', error);
-        res.status(500).json({ error: 'Failed to generate codes' });
+        res.status(500).json({ error: 'Code activation failed' });
     }
 });
 
@@ -905,71 +768,8 @@ app.get('/api/health', (req, res) => {
         status: 'OK', 
         timestamp: new Date().toISOString(),
         uptime: process.uptime(),
-        activeSessions: userSessions.size,
-        generatedCodes: generatedCodes.size,
-        version: '2.0.0',
-        features: {
-            premiumCodes: true,
-            paypalIntegration: true,
-            emailNotifications: false
-        }
+        activeSessions: userSessions.size
     });
-});
-
-// Get system information (debug endpoint)
-app.get('/api/system-info', (req, res) => {
-    try {
-        const adminToken = req.headers['x-admin-token'];
-        if (adminToken !== process.env.ADMIN_TOKEN && process.env.NODE_ENV === 'production') {
-            return res.status(403).json({ error: 'Unauthorized' });
-        }
-        
-        const memoryUsage = process.memoryUsage();
-        const now = new Date();
-        
-        // Calculate premium statistics
-        let premiumUsers = 0;
-        let expiredUsers = 0;
-        for (const [userId, session] of userSessions.entries()) {
-            if (session.premiumUntil) {
-                if (new Date() < session.premiumUntil) {
-                    premiumUsers++;
-                } else {
-                    expiredUsers++;
-                }
-            }
-        }
-        
-        res.json({
-            server: {
-                nodeVersion: process.version,
-                platform: process.platform,
-                uptime: process.uptime(),
-                memoryUsage: {
-                    rss: Math.round(memoryUsage.rss / 1024 / 1024) + ' MB',
-                    heapTotal: Math.round(memoryUsage.heapTotal / 1024 / 1024) + ' MB',
-                    heapUsed: Math.round(memoryUsage.heapUsed / 1024 / 1024) + ' MB'
-                }
-            },
-            statistics: {
-                activeSessions: userSessions.size,
-                premiumUsers: premiumUsers,
-                expiredUsers: expiredUsers,
-                generatedCodes: generatedCodes.size,
-                activePayments: activePayments.size
-            },
-            configuration: {
-                toolConfigs: toolConfigs,
-                corsEnabled: true,
-                uploadLimit: '50MB',
-                maxFiles: 20
-            }
-        });
-        
-    } catch (error) {
-        console.error('System info error:', error);
-        res.status(500).json({ error: 'Failed to get system info' });
-    }
 });
 
 // Error handling
@@ -988,27 +788,13 @@ app.use((error, req, res, next) => {
     res.status(500).json({ error: 'Internal server error' });
 });
 
-// Enhanced cleanup with premium code management
-setInterval(async () => {
+// Cleanup old sessions periodically
+setInterval(() => {
     const now = new Date();
-    let cleanedCodes = 0;
-    let cleanedSessions = 0;
-    let cleanedPayments = 0;
-    
-    // Clean up old sessions
     for (const [userId, session] of userSessions.entries()) {
         // Remove sessions older than 7 days
         if (now - session.createdAt > 7 * 24 * 60 * 60 * 1000) {
             userSessions.delete(userId);
-            cleanedSessions++;
-        }
-    }
-    
-    // Clean up old generated codes (keep for 30 days for support purposes)
-    for (const [code, data] of generatedCodes.entries()) {
-        if (now - data.createdAt > 30 * 24 * 60 * 60 * 1000) {
-            generatedCodes.delete(code);
-            cleanedCodes++;
         }
     }
     
@@ -1016,61 +802,20 @@ setInterval(async () => {
     for (const [orderId, payment] of activePayments.entries()) {
         if (now - payment.createdAt > 24 * 60 * 60 * 1000) {
             activePayments.delete(orderId);
-            cleanedPayments++;
         }
     }
     
-    if (cleanedCodes > 0 || cleanedSessions > 0 || cleanedPayments > 0) {
-        console.log(`Cleanup completed: ${cleanedCodes} codes, ${cleanedSessions} sessions, ${cleanedPayments} payments removed`);
+    // Clean up old generated codes - NEW
+    for (const [code, data] of generatedCodes.entries()) {
+        if (now - data.createdAt > 30 * 24 * 60 * 60 * 1000) { // Keep for 30 days
+            generatedCodes.delete(code);
+        }
     }
-    
-    // Log system status every hour
-    const premiumUsers = Array.from(userSessions.values()).filter(session => 
-        session.premiumUntil && new Date() < session.premiumUntil
-    ).length;
-    
-    console.log(`System Status: ${userSessions.size} active sessions, ${premiumUsers} premium users, ${generatedCodes.size} total codes`);
-    
 }, 60 * 60 * 1000); // Run every hour
 
-// Graceful shutdown
-process.on('SIGTERM', () => {
-    console.log('SIGTERM signal received: closing HTTP server');
-    server.close(() => {
-        console.log('HTTP server closed');
-        process.exit(0);
-    });
-});
-
-process.on('SIGINT', () => {
-    console.log('SIGINT signal received: closing HTTP server');
-    server.close(() => {
-        console.log('HTTP server closed');
-        process.exit(0);
-    });
-});
-
-// Start server
-const server = app.listen(PORT, () => {
-    console.log(`🚀 PDF Tools Backend running on port ${PORT}`);
-    console.log(`📊 Tool configurations:`, toolConfigs);
-    console.log(`✅ Premium code system initialized (no email)`);
-    console.log(`🎫 Demo codes: PREMIUM24H, TESTCODE123, LAUNCH2024, DEMO2024, FREEPREMIUM`);
-    console.log(`📈 Available endpoints:`);
-    console.log(`   • POST /api/process-pdf - Main PDF processing`);
-    console.log(`   • GET  /api/user-status - User session status`);
-    console.log(`   • POST /api/capture-paypal-payment - PayPal payment processing`);
-    console.log(`   • POST /api/activate-premium-code - Premium code activation`);
-    console.log(`   • POST /api/validate-premium-code - Code validation`);
-    console.log(`   • GET  /api/premium-stats - Premium statistics (admin)`);
-    console.log(`   • POST /api/generate-manual-codes - Generate codes (admin)`);
-    console.log(`   • GET  /api/health - Health check`);
-    console.log(`   • GET  /api/system-info - System information (admin)`);
-    
-    if (process.env.NODE_ENV === 'development') {
-        console.log(`🔧 Development mode - enhanced logging enabled`);
-        console.log(`🔑 Use X-Admin-Token header for admin endpoints`);
-    }
+app.listen(PORT, () => {
+    console.log(`PDF Tools Backend running on port ${PORT}`);
+    console.log('Tool configurations:', toolConfigs);
 });
 
 module.exports = app;
