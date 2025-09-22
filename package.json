@@ -1,0 +1,12 @@
+{
+  "dependencies": {
+    "docx": "^9.5.1",
+    "jimp": "^1.6.0",
+    "mammoth": "^1.11.0",
+    "officegen": "^0.6.5",
+    "pdf-parse": "^1.1.1",
+    "pdf2pic": "^3.2.0",
+    "sharp": "^0.34.4",
+    "xlsx": "^0.18.5"
+  }
+}
