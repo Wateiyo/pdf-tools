@@ -1,0 +1,1226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Direct PDF Editor</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
+        }
+
+        .editor-container {
+            display: flex;
+            height: 100vh;
+        }
+
+        .sidebar {
+            width: 300px;
+            background: white;
+            border-right: 1px solid #e0e0e0;
+            overflow-y: auto;
+            padding: 20px;
+        }
+
+        .main-editor {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: #f0f0f0;
+        }
+
+        .toolbar {
+            background: white;
+            border-bottom: 1px solid #e0e0e0;
+            padding: 15px 20px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .canvas-container {
+            flex: 1;
+            overflow: auto;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+        }
+
+        .pdf-canvas {
+            border: 1px solid #ccc;
+            background: white;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            cursor: crosshair;
+            position: relative;
+        }
+
+        .text-overlay {
+            position: absolute;
+            pointer-events: none;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        .text-element {
+            position: absolute;
+            pointer-events: auto;
+            cursor: move;
+            min-width: 20px;
+            min-height: 20px;
+            border: 2px dashed transparent;
+            padding: 2px;
+            user-select: none;
+        }
+
+        .text-element.selected {
+            border-color: #007bff;
+            background: rgba(0, 123, 255, 0.1);
+        }
+
+        .text-element:hover {
+            border-color: #28a745;
+        }
+
+        .btn {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.2s;
+        }
+
+        .btn:hover {
+            background: #0056b3;
+        }
+
+        .btn.secondary {
+            background: #6c757d;
+        }
+
+        .btn.secondary:hover {
+            background: #545b62;
+        }
+
+        .btn.danger {
+            background: #dc3545;
+        }
+
+        .btn.danger:hover {
+            background: #c82333;
+        }
+
+        .tool-group {
+            margin-bottom: 20px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+
+        .tool-group h3 {
+            margin-bottom: 10px;
+            color: #333;
+            font-size: 16px;
+        }
+
+        .form-control {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin-bottom: 10px;
+            font-size: 14px;
+        }
+
+        .form-row {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .form-row .form-control {
+            margin-bottom: 0;
+        }
+
+        .pages-nav {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .page-thumbnails {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+            overflow-x: auto;
+            padding: 10px 0;
+        }
+
+        .page-thumb {
+            width: 60px;
+            height: 80px;
+            border: 2px solid #ddd;
+            border-radius: 4px;
+            cursor: pointer;
+            background: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            color: #666;
+            transition: border-color 0.2s;
+        }
+
+        .page-thumb.active {
+            border-color: #007bff;
+            background: #e7f3ff;
+        }
+
+        .upload-area {
+            border: 2px dashed #ddd;
+            border-radius: 8px;
+            padding: 40px;
+            text-align: center;
+            background: white;
+            margin-bottom: 20px;
+            cursor: pointer;
+            transition: border-color 0.2s;
+        }
+
+        .upload-area:hover {
+            border-color: #007bff;
+        }
+
+        .upload-area.dragover {
+            border-color: #007bff;
+            background: #e7f3ff;
+        }
+
+        .context-menu {
+            position: absolute;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 5px 0;
+            z-index: 1000;
+            display: none;
+        }
+
+        .context-menu button {
+            width: 100%;
+            padding: 8px 15px;
+            border: none;
+            background: none;
+            text-align: left;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .context-menu button:hover {
+            background: #f5f5f5;
+        }
+
+        .loading {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+            z-index: 2000;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #007bff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .zoom-controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .zoom-level {
+            font-size: 14px;
+            min-width: 60px;
+            text-align: center;
+        }
+
+        .text-templates {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+            margin-bottom: 10px;
+        }
+
+        .template-btn {
+            background: #e9ecef;
+            border: 1px solid #ced4da;
+            padding: 4px 8px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: background 0.2s;
+        }
+
+        .template-btn:hover {
+            background: #dee2e6;
+        }
+
+        .properties-panel {
+            position: fixed;
+            right: 20px;
+            top: 20px;
+            width: 250px;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 15px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            display: none;
+        }
+
+        .properties-panel h4 {
+            margin-bottom: 10px;
+            color: #333;
+        }
+
+        @media (max-width: 768px) {
+            .editor-container {
+                flex-direction: column;
+            }
+            
+            .sidebar {
+                width: 100%;
+                height: auto;
+                order: 2;
+            }
+            
+            .main-editor {
+                order: 1;
+                height: 60vh;
+            }
+            
+            .properties-panel {
+                position: relative;
+                right: auto;
+                top: auto;
+                width: 100%;
+                margin-top: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="loading" id="loading">
+        <div class="spinner"></div>
+        <div>Processing PDF...</div>
+    </div>
+
+    <div class="editor-container">
+        <div class="sidebar">
+            <div class="upload-area" id="uploadArea">
+                <h3>Upload PDF File</h3>
+                <p>Drag and drop a PDF file here or click to browse</p>
+                <input type="file" id="fileInput" accept=".pdf" style="display: none;">
+            </div>
+
+            <div id="pdfInfo" style="display: none;">
+                <div class="tool-group">
+                    <h3>Pages</h3>
+                    <div class="page-thumbnails" id="pageThumbnails"></div>
+                    <div class="pages-nav">
+                        <button class="btn secondary" id="prevPage">Previous</button>
+                        <span id="pageInfo">Page 1 of 1</span>
+                        <button class="btn secondary" id="nextPage">Next</button>
+                    </div>
+                </div>
+
+                <div class="tool-group">
+                    <h3>Add Text</h3>
+                    <div class="text-templates">
+                        <button class="template-btn" onclick="applyTemplate('date')">Date</button>
+                        <button class="template-btn" onclick="applyTemplate('signature')">Signature</button>
+                        <button class="template-btn" onclick="applyTemplate('confidential')">Confidential</button>
+                        <button class="template-btn" onclick="applyTemplate('draft')">Draft</button>
+                    </div>
+                    <input type="text" class="form-control" id="textInput" placeholder="Enter text">
+                    <div class="form-row">
+                        <input type="number" class="form-control" id="fontSize" value="16" min="8" max="72" placeholder="Size">
+                        <input type="color" class="form-control" id="textColor" value="#000000">
+                    </div>
+                    <div class="form-row">
+                        <select class="form-control" id="fontFamily">
+                            <option value="Arial">Arial</option>
+                            <option value="Times New Roman">Times New Roman</option>
+                            <option value="Courier New">Courier New</option>
+                            <option value="Helvetica">Helvetica</option>
+                        </select>
+                        <select class="form-control" id="fontWeight">
+                            <option value="normal">Normal</option>
+                            <option value="bold">Bold</option>
+                        </select>
+                    </div>
+                    <button class="btn" id="addTextBtn">Add Text (Click on PDF)</button>
+                </div>
+
+                <div class="tool-group">
+                    <h3>Page Actions</h3>
+                    <div class="form-row">
+                        <button class="btn secondary" id="rotateLeft">Rotate Left</button>
+                        <button class="btn secondary" id="rotateRight">Rotate Right</button>
+                    </div>
+                    <button class="btn danger" id="deletePage">Delete Page</button>
+                </div>
+
+                <div class="tool-group">
+                    <h3>Export</h3>
+                    <button class="btn" id="downloadBtn">Download PDF</button>
+                    <button class="btn secondary" id="saveAsImageBtn">Save as Image</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="main-editor">
+            <div class="toolbar">
+                <div class="zoom-controls">
+                    <button class="btn secondary" id="zoomOut">-</button>
+                    <span class="zoom-level" id="zoomLevel">100%</span>
+                    <button class="btn secondary" id="zoomIn">+</button>
+                </div>
+                
+                <button class="btn secondary" id="fitToWidth">Fit Width</button>
+                <button class="btn secondary" id="fitToPage">Fit Page</button>
+                
+                <div style="margin-left: auto;">
+                    <button class="btn secondary" id="undoBtn">Undo</button>
+                    <button class="btn secondary" id="redoBtn">Redo</button>
+                </div>
+            </div>
+
+            <div class="canvas-container">
+                <div style="position: relative;">
+                    <canvas id="pdfCanvas" class="pdf-canvas"></canvas>
+                    <div class="text-overlay" id="textOverlay"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="context-menu" id="contextMenu">
+        <button onclick="editSelectedText()">Edit Text</button>
+        <button onclick="deleteSelectedText()">Delete</button>
+        <button onclick="duplicateSelectedText()">Duplicate</button>
+        <button onclick="bringToFront()">Bring to Front</button>
+        <button onclick="sendToBack()">Send to Back</button>
+    </div>
+
+    <div class="properties-panel" id="propertiesPanel">
+        <h4>Text Properties</h4>
+        <input type="text" class="form-control" id="editTextContent" placeholder="Text content">
+        <div class="form-row">
+            <input type="number" class="form-control" id="editFontSize" placeholder="Size">
+            <input type="color" class="form-control" id="editTextColor">
+        </div>
+        <div class="form-row">
+            <input type="number" class="form-control" id="editTextX" placeholder="X">
+            <input type="number" class="form-control" id="editTextY" placeholder="Y">
+        </div>
+        <button class="btn" onclick="applyTextChanges()">Apply Changes</button>
+        <button class="btn secondary" onclick="closePropertiesPanel()">Close</button>
+    </div>
+
+    <script>
+        // Global variables
+        let pdfDoc = null;
+        let pdfLibDoc = null;
+        let currentPage = 1;
+        let totalPages = 0;
+        let scale = 1.0;
+        let textElements = [];
+        let selectedElement = null;
+        let isAddingText = false;
+        let undoStack = [];
+        let redoStack = [];
+        let pageRotations = {};
+
+        // PDF.js configuration
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeEventListeners();
+        });
+
+        function initializeEventListeners() {
+            // File upload
+            document.getElementById('uploadArea').addEventListener('click', () => {
+                document.getElementById('fileInput').click();
+            });
+
+            document.getElementById('fileInput').addEventListener('change', handleFileSelect);
+
+            // Drag and drop
+            const uploadArea = document.getElementById('uploadArea');
+            uploadArea.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                uploadArea.classList.add('dragover');
+            });
+
+            uploadArea.addEventListener('dragleave', () => {
+                uploadArea.classList.remove('dragover');
+            });
+
+            uploadArea.addEventListener('drop', (e) => {
+                e.preventDefault();
+                uploadArea.classList.remove('dragover');
+                const files = e.dataTransfer.files;
+                if (files.length > 0 && files[0].type === 'application/pdf') {
+                    loadPDF(files[0]);
+                }
+            });
+
+            // Navigation
+            document.getElementById('prevPage').addEventListener('click', () => {
+                if (currentPage > 1) {
+                    currentPage--;
+                    renderPage();
+                    updatePageInfo();
+                }
+            });
+
+            document.getElementById('nextPage').addEventListener('click', () => {
+                if (currentPage < totalPages) {
+                    currentPage++;
+                    renderPage();
+                    updatePageInfo();
+                }
+            });
+
+            // Zoom
+            document.getElementById('zoomIn').addEventListener('click', () => {
+                scale *= 1.2;
+                renderPage();
+                updateZoomLevel();
+            });
+
+            document.getElementById('zoomOut').addEventListener('click', () => {
+                scale /= 1.2;
+                renderPage();
+                updateZoomLevel();
+            });
+
+            document.getElementById('fitToWidth').addEventListener('click', fitToWidth);
+            document.getElementById('fitToPage').addEventListener('click', fitToPage);
+
+            // Text tools
+            document.getElementById('addTextBtn').addEventListener('click', () => {
+                isAddingText = true;
+                document.getElementById('pdfCanvas').style.cursor = 'crosshair';
+                document.getElementById('addTextBtn').textContent = 'Click on PDF to add text';
+                document.getElementById('addTextBtn').style.background = '#28a745';
+            });
+
+            // Canvas click for adding text
+            document.getElementById('pdfCanvas').addEventListener('click', handleCanvasClick);
+
+            // Page rotation
+            document.getElementById('rotateLeft').addEventListener('click', () => rotateCurrentPage(-90));
+            document.getElementById('rotateRight').addEventListener('click', () => rotateCurrentPage(90));
+
+            // Export
+            document.getElementById('downloadBtn').addEventListener('click', downloadPDF);
+            document.getElementById('saveAsImageBtn').addEventListener('click', saveAsImage);
+
+            // Undo/Redo
+            document.getElementById('undoBtn').addEventListener('click', undo);
+            document.getElementById('redoBtn').addEventListener('click', redo);
+
+            // Context menu
+            document.addEventListener('click', hideContextMenu);
+            document.addEventListener('contextmenu', (e) => {
+                if (selectedElement && e.target.classList.contains('text-element')) {
+                    e.preventDefault();
+                    showContextMenu(e.clientX, e.clientY);
+                }
+            });
+
+            // Page deletion
+            document.getElementById('deletePage').addEventListener('click', deleteCurrentPage);
+        }
+
+        async function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (file && file.type === 'application/pdf') {
+                await loadPDF(file);
+            }
+        }
+
+        async function loadPDF(file) {
+            showLoading();
+            
+            try {
+                const arrayBuffer = await file.arrayBuffer();
+                
+                // Load with PDF.js for rendering
+                pdfDoc = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
+                
+                // Load with PDF-lib for editing
+                pdfLibDoc = await PDFLib.PDFDocument.load(arrayBuffer);
+                
+                totalPages = pdfDoc.numPages;
+                currentPage = 1;
+                textElements = [];
+                pageRotations = {};
+                
+                // Initialize page rotations
+                for (let i = 1; i <= totalPages; i++) {
+                    pageRotations[i] = 0;
+                }
+                
+                generatePageThumbnails();
+                renderPage();
+                updatePageInfo();
+                
+                document.getElementById('pdfInfo').style.display = 'block';
+                hideLoading();
+                
+            } catch (error) {
+                console.error('Error loading PDF:', error);
+                alert('Error loading PDF file. Please try another file.');
+                hideLoading();
+            }
+        }
+
+        async function renderPage() {
+            if (!pdfDoc) return;
+            
+            const page = await pdfDoc.getPage(currentPage);
+            const canvas = document.getElementById('pdfCanvas');
+            const context = canvas.getContext('2d');
+            
+            // Apply rotation
+            const rotation = pageRotations[currentPage] || 0;
+            let viewport = page.getViewport({scale: scale, rotation: rotation});
+            
+            canvas.height = viewport.height;
+            canvas.width = viewport.width;
+            
+            const renderContext = {
+                canvasContext: context,
+                viewport: viewport
+            };
+            
+            await page.render(renderContext).promise;
+            
+            // Render text elements for current page
+            renderTextElements();
+            updateActiveThumbnail();
+        }
+
+        function renderTextElements() {
+            const overlay = document.getElementById('textOverlay');
+            const canvas = document.getElementById('pdfCanvas');
+            
+            // Update overlay size
+            overlay.style.width = canvas.width + 'px';
+            overlay.style.height = canvas.height + 'px';
+            
+            // Clear existing elements
+            overlay.innerHTML = '';
+            
+            // Render text elements for current page
+            const pageElements = textElements.filter(el => el.page === currentPage);
+            
+            pageElements.forEach((element, index) => {
+                const textEl = document.createElement('div');
+                textEl.className = 'text-element';
+                textEl.textContent = element.text;
+                textEl.style.left = (element.x * scale) + 'px';
+                textEl.style.top = (element.y * scale) + 'px';
+                textEl.style.fontSize = (element.fontSize * scale) + 'px';
+                textEl.style.color = element.color;
+                textEl.style.fontFamily = element.fontFamily;
+                textEl.style.fontWeight = element.fontWeight;
+                textEl.style.zIndex = element.zIndex || 1;
+                
+                textEl.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    selectTextElement(textEl, element);
+                });
+                
+                textEl.addEventListener('dblclick', (e) => {
+                    e.stopPropagation();
+                    editTextElement(element);
+                });
+                
+                // Make draggable
+                makeDraggable(textEl, element);
+                
+                overlay.appendChild(textEl);
+            });
+        }
+
+        function makeDraggable(element, textData) {
+            let isDragging = false;
+            let startX, startY, startLeft, startTop;
+            
+            element.addEventListener('mousedown', (e) => {
+                if (e.button === 0) { // Left click only
+                    isDragging = true;
+                    startX = e.clientX;
+                    startY = e.clientY;
+                    startLeft = textData.x;
+                    startTop = textData.y;
+                    
+                    document.addEventListener('mousemove', onMouseMove);
+                    document.addEventListener('mouseup', onMouseUp);
+                    
+                    e.preventDefault();
+                }
+            });
+            
+            function onMouseMove(e) {
+                if (!isDragging) return;
+                
+                const deltaX = (e.clientX - startX) / scale;
+                const deltaY = (e.clientY - startY) / scale;
+                
+                textData.x = startLeft + deltaX;
+                textData.y = startTop + deltaY;
+                
+                element.style.left = (textData.x * scale) + 'px';
+                element.style.top = (textData.y * scale) + 'px';
+            }
+            
+            function onMouseUp() {
+                if (isDragging) {
+                    isDragging = false;
+                    saveState();
+                    document.removeEventListener('mousemove', onMouseMove);
+                    document.removeEventListener('mouseup', onMouseUp);
+                }
+            }
+        }
+
+        function handleCanvasClick(event) {
+            if (!isAddingText) {
+                deselectAll();
+                return;
+            }
+            
+            const canvas = document.getElementById('pdfCanvas');
+            const rect = canvas.getBoundingClientRect();
+            const x = (event.clientX - rect.left) / scale;
+            const y = (event.clientY - rect.top) / scale;
+            
+            const text = document.getElementById('textInput').value || 'Sample Text';
+            const fontSize = parseInt(document.getElementById('fontSize').value) || 16;
+            const color = document.getElementById('textColor').value;
+            const fontFamily = document.getElementById('fontFamily').value;
+            const fontWeight = document.getElementById('fontWeight').value;
+            
+            const textElement = {
+                id: Date.now(),
+                page: currentPage,
+                text: text,
+                x: x,
+                y: y,
+                fontSize: fontSize,
+                color: color,
+                fontFamily: fontFamily,
+                fontWeight: fontWeight,
+                zIndex: textElements.length + 1
+            };
+            
+            textElements.push(textElement);
+            saveState();
+            renderTextElements();
+            
+            // Reset add text mode
+            isAddingText = false;
+            document.getElementById('pdfCanvas').style.cursor = 'default';
+            document.getElementById('addTextBtn').textContent = 'Add Text (Click on PDF)';
+            document.getElementById('addTextBtn').style.background = '#007bff';
+        }
+
+        function selectTextElement(element, textData) {
+            deselectAll();
+            selectedElement = textData;
+            element.classList.add('selected');
+        }
+
+        function deselectAll() {
+            selectedElement = null;
+            document.querySelectorAll('.text-element').forEach(el => {
+                el.classList.remove('selected');
+            });
+            hideContextMenu();
+            closePropertiesPanel();
+        }
+
+        function generatePageThumbnails() {
+            const container = document.getElementById('pageThumbnails');
+            container.innerHTML = '';
+            
+            for (let i = 1; i <= totalPages; i++) {
+                const thumb = document.createElement('div');
+                thumb.className = 'page-thumb';
+                thumb.textContent = i;
+                thumb.addEventListener('click', () => {
+                    currentPage = i;
+                    renderPage();
+                    updatePageInfo();
+                });
+                container.appendChild(thumb);
+            }
+        }
+
+        function updateActiveThumbnail() {
+            document.querySelectorAll('.page-thumb').forEach((thumb, index) => {
+                thumb.classList.toggle('active', index + 1 === currentPage);
+            });
+        }
+
+        function updatePageInfo() {
+            document.getElementById('pageInfo').textContent = `Page ${currentPage} of ${totalPages}`;
+        }
+
+        function updateZoomLevel() {
+            document.getElementById('zoomLevel').textContent = Math.round(scale * 100) + '%';
+        }
+
+        function fitToWidth() {
+            const container = document.querySelector('.canvas-container');
+            const containerWidth = container.clientWidth - 40; // padding
+            scale = containerWidth / document.getElementById('pdfCanvas').width * scale;
+            renderPage();
+            updateZoomLevel();
+        }
+
+        function fitToPage() {
+            const container = document.querySelector('.canvas-container');
+            const containerWidth = container.clientWidth - 40;
+            const containerHeight = container.clientHeight - 40;
+            
+            const canvas = document.getElementById('pdfCanvas');
+            const scaleX = containerWidth / canvas.width * scale;
+            const scaleY = containerHeight / canvas.height * scale;
+            
+            scale = Math.min(scaleX, scaleY);
+            renderPage();
+            updateZoomLevel();
+        }
+
+        function rotateCurrentPage(degrees) {
+            pageRotations[currentPage] = (pageRotations[currentPage] + degrees) % 360;
+            if (pageRotations[currentPage] < 0) {
+                pageRotations[currentPage] += 360;
+            }
+            renderPage();
+            saveState();
+        }
+
+        function applyTemplate(type) {
+            const templates = {
+                date: new Date().toLocaleDateString(),
+                signature: '________________________\nSignature',
+                confidential: 'CONFIDENTIAL',
+                draft: 'DRAFT'
+            };
+            
+            document.getElementById('textInput').value = templates[type] || '';
+        }
+
+        function showContextMenu(x, y) {
+            const menu = document.getElementById('contextMenu');
+            menu.style.display = 'block';
+            menu.style.left = x + 'px';
+            menu.style.top = y + 'px';
+        }
+
+        function hideContextMenu() {
+            document.getElementById('contextMenu').style.display = 'none';
+        }
+
+        function editSelectedText() {
+            if (selectedElement) {
+                editTextElement(selectedElement);
+            }
+            hideContextMenu();
+        }
+
+        function deleteSelectedText() {
+            if (selectedElement) {
+                const index = textElements.findIndex(el => el.id === selectedElement.id);
+                if (index !== -1) {
+                    textElements.splice(index, 1);
+                    saveState();
+                    renderTextElements();
+                    selectedElement = null;
+                }
+            }
+            hideContextMenu();
+        }
+
+        function duplicateSelectedText() {
+            if (selectedElement) {
+                const newElement = {...selectedElement};
+                newElement.id = Date.now();
+                newElement.x += 10;
+                newElement.y += 10;
+                textElements.push(newElement);
+                saveState();
+                renderTextElements();
+            }
+            hideContextMenu();
+        }
+
+        function bringToFront() {
+            if (selectedElement) {
+                const maxZ = Math.max(...textElements.map(el => el.zIndex || 1));
+                selectedElement.zIndex = maxZ + 1;
+                renderTextElements();
+                saveState();
+            }
+            hideContextMenu();
+        }
+
+        function sendToBack() {
+            if (selectedElement) {
+                selectedElement.zIndex = 0;
+                renderTextElements();
+                saveState();
+            }
+            hideContextMenu();
+        }
+
+        function editTextElement(element) {
+            document.getElementById('editTextContent').value = element.text;
+            document.getElementById('editFontSize').value = element.fontSize;
+            document.getElementById('editTextColor').value = element.color;
+            document.getElementById('editTextX').value = Math.round(element.x);
+            document.getElementById('editTextY').value = Math.round(element.y);
+            
+            document.getElementById('propertiesPanel').style.display = 'block';
+        }
+
+        function applyTextChanges() {
+            if (selectedElement) {
+                selectedElement.text = document.getElementById('editTextContent').value;
+                selectedElement.fontSize = parseInt(document.getElementById('editFontSize').value);
+                selectedElement.color = document.getElementById('editTextColor').value;
+                selectedElement.x = parseFloat(document.getElementById('editTextX').value);
+                selectedElement.y = parseFloat(document.getElementById('editTextY').value);
+                
+                saveState();
+                renderTextElements();
+                closePropertiesPanel();
+            }
+        }
+
+        function closePropertiesPanel() {
+            document.getElementById('propertiesPanel').style.display = 'none';
+        }
+
+        function deleteCurrentPage() {
+            if (totalPages <= 1) {
+                alert('Cannot delete the last page');
+                return;
+            }
+            
+            if (confirm(`Are you sure you want to delete page ${currentPage}?`)) {
+                // Remove text elements from this page
+                textElements = textElements.filter(el => el.page !== currentPage);
+                
+                // Adjust page numbers for remaining elements
+                textElements.forEach(el => {
+                    if (el.page > currentPage) {
+                        el.page--;
+                    }
+                });
+                
+                // Adjust page rotations
+                const newRotations = {};
+                for (let page in pageRotations) {
+                    const pageNum = parseInt(page);
+                    if (pageNum < currentPage) {
+                        newRotations[pageNum] = pageRotations[pageNum];
+                    } else if (pageNum > currentPage) {
+                        newRotations[pageNum - 1] = pageRotations[pageNum];
+                    }
+                }
+                pageRotations = newRotations;
+                
+                totalPages--;
+                if (currentPage > totalPages) {
+                    currentPage = totalPages;
+                }
+                
+                generatePageThumbnails();
+                renderPage();
+                updatePageInfo();
+                saveState();
+            }
+        }
+
+        async function downloadPDF() {
+            if (!pdfLibDoc) {
+                alert('No PDF loaded');
+                return;
+            }
+            
+            showLoading();
+            
+            try {
+                // Create a new PDF document
+                const newDoc = await PDFLib.PDFDocument.create();
+                
+                // Copy pages from original document
+                const pageIndices = [];
+                for (let i = 0; i < totalPages; i++) {
+                    pageIndices.push(i);
+                }
+                
+                const copiedPages = await newDoc.copyPages(pdfLibDoc, pageIndices);
+                
+                // Add copied pages and apply modifications
+                copiedPages.forEach((page, index) => {
+                    const pageNum = index + 1;
+                    newDoc.addPage(page);
+                    
+                    // Apply rotation
+                    const rotation = pageRotations[pageNum] || 0;
+                    if (rotation !== 0) {
+                        page.setRotation(PDFLib.degrees(rotation));
+                    }
+                    
+                    // Add text elements for this page
+                    const pageElements = textElements.filter(el => el.page === pageNum);
+                    
+                    pageElements.forEach(element => {
+                        try {
+                            // Convert font family to PDF-lib font
+                            let font;
+                            switch (element.fontFamily) {
+                                case 'Times New Roman':
+                                    font = element.fontWeight === 'bold' ? 
+                                        PDFLib.StandardFonts.TimesRomanBold : 
+                                        PDFLib.StandardFonts.TimesRoman;
+                                    break;
+                                case 'Courier New':
+                                    font = element.fontWeight === 'bold' ? 
+                                        PDFLib.StandardFonts.CourierBold : 
+                                        PDFLib.StandardFonts.Courier;
+                                    break;
+                                default:
+                                    font = element.fontWeight === 'bold' ? 
+                                        PDFLib.StandardFonts.HelveticaBold : 
+                                        PDFLib.StandardFonts.Helvetica;
+                            }
+                            
+                            // Convert color
+                            const hexColor = element.color.replace('#', '');
+                            const r = parseInt(hexColor.substr(0, 2), 16) / 255;
+                            const g = parseInt(hexColor.substr(2, 2), 16) / 255;
+                            const b = parseInt(hexColor.substr(4, 2), 16) / 255;
+                            
+                            // Adjust Y coordinate (PDF coordinate system is bottom-up)
+                            const { width, height } = page.getSize();
+                            const adjustedY = height - element.y - element.fontSize;
+                            
+                            page.drawText(element.text, {
+                                x: element.x,
+                                y: adjustedY,
+                                size: element.fontSize,
+                                font: newDoc.embedStandardFont(font),
+                                color: PDFLib.rgb(r, g, b)
+                            });
+                        } catch (error) {
+                            console.error('Error adding text element:', error);
+                        }
+                    });
+                });
+                
+                const pdfBytes = await newDoc.save();
+                
+                // Download the PDF
+                const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'edited-document.pdf';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                
+                hideLoading();
+                
+            } catch (error) {
+                console.error('Error generating PDF:', error);
+                alert('Error generating PDF. Please try again.');
+                hideLoading();
+            }
+        }
+
+        function saveAsImage() {
+            const canvas = document.getElementById('pdfCanvas');
+            const overlay = document.getElementById('textOverlay');
+            
+            // Create a new canvas to combine PDF and text
+            const combinedCanvas = document.createElement('canvas');
+            const ctx = combinedCanvas.getContext('2d');
+            
+            combinedCanvas.width = canvas.width;
+            combinedCanvas.height = canvas.height;
+            
+            // Draw PDF page
+            ctx.drawImage(canvas, 0, 0);
+            
+            // Draw text elements
+            const pageElements = textElements.filter(el => el.page === currentPage);
+            pageElements.forEach(element => {
+                ctx.font = `${element.fontWeight} ${element.fontSize * scale}px ${element.fontFamily}`;
+                ctx.fillStyle = element.color;
+                ctx.fillText(element.text, element.x * scale, element.y * scale);
+            });
+            
+            // Download as image
+            combinedCanvas.toBlob((blob) => {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `page-${currentPage}.png`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            });
+        }
+
+        function saveState() {
+            const state = {
+                textElements: JSON.parse(JSON.stringify(textElements)),
+                pageRotations: JSON.parse(JSON.stringify(pageRotations)),
+                currentPage: currentPage,
+                totalPages: totalPages
+            };
+            
+            undoStack.push(state);
+            redoStack = []; // Clear redo stack when new action is performed
+            
+            // Limit undo stack size
+            if (undoStack.length > 50) {
+                undoStack.shift();
+            }
+        }
+
+        function undo() {
+            if (undoStack.length > 1) {
+                redoStack.push(undoStack.pop());
+                const state = undoStack[undoStack.length - 1];
+                restoreState(state);
+            }
+        }
+
+        function redo() {
+            if (redoStack.length > 0) {
+                const state = redoStack.pop();
+                undoStack.push(state);
+                restoreState(state);
+            }
+        }
+
+        function restoreState(state) {
+            textElements = JSON.parse(JSON.stringify(state.textElements));
+            pageRotations = JSON.parse(JSON.stringify(state.pageRotations));
+            currentPage = state.currentPage;
+            totalPages = state.totalPages;
+            
+            renderPage();
+            updatePageInfo();
+            generatePageThumbnails();
+        }
+
+        function showLoading() {
+            document.getElementById('loading').style.display = 'block';
+        }
+
+        function hideLoading() {
+            document.getElementById('loading').style.display = 'none';
+        }
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            if (e.ctrlKey || e.metaKey) {
+                switch (e.key) {
+                    case 'z':
+                        e.preventDefault();
+                        if (e.shiftKey) {
+                            redo();
+                        } else {
+                            undo();
+                        }
+                        break;
+                    case 'y':
+                        e.preventDefault();
+                        redo();
+                        break;
+                    case 's':
+                        e.preventDefault();
+                        downloadPDF();
+                        break;
+                }
+            }
+            
+            if (e.key === 'Delete' && selectedElement) {
+                deleteSelectedText();
+            }
+            
+            if (e.key === 'Escape') {
+                deselectAll();
+                isAddingText = false;
+                document.getElementById('pdfCanvas').style.cursor = 'default';
+                document.getElementById('addTextBtn').textContent = 'Add Text (Click on PDF)';
+                document.getElementById('addTextBtn').style.background = '#007bff';
+            }
+        });
+
+        // Auto-save state on first load
+        window.addEventListener('load', () => {
+            saveState();
+        });
+    </script>
+</body>
+</html>
